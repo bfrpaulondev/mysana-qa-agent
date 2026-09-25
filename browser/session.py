@@ -248,6 +248,10 @@ class BrowserSession:
         self.driver.save_screenshot(str(path))
         return str(path)
 
+    def screenshot_base64(self) -> str:
+        self._require_driver()
+        return self.driver.get_screenshot_as_base64()
+
     def detect_login_form(self) -> dict[str, Any]:
         self._require_driver()
         script = r"""
@@ -361,28 +365,32 @@ class BrowserSession:
             approval_target=password_selector,
         )
 
+        needs_agent_recovery = False
         if submit_selector:
-            submit = self._find(submit_selector)
-            self._click_visible(
-                submit,
-                "CLICAR EM ENTRAR",
-                enforce_policy=False,
-                approval_target=submit_selector,
-            )
+            try:
+                submit = self._find(submit_selector)
+                self._click_visible(
+                    submit,
+                    "CLICAR EM ENTRAR",
+                    enforce_policy=False,
+                    approval_target=submit_selector,
+                )
+            except ActionRejected:
+                raise
+            except Exception as exc:
+                needs_agent_recovery = True
+                self._emit(
+                    "login",
+                    f"Botão de login não foi accionado ({type(exc).__name__}); "
+                    "o agente visual vai reanalisar o ecrã.",
+                )
         else:
-            from selenium.webdriver.common.keys import Keys
-
-            self._visual_focus(password_element, "PREMIR ENTER", "#77B9FF")
-            self._require_approval(
-                action="keypress",
-                label="Premir Enter para submeter o login",
-                target=password_selector or "password",
-                value_preview="Enter",
-                secret=False,
+            needs_agent_recovery = True
+            self._emit(
+                "login",
+                "Botão de login não identificado pelo DOM; "
+                "o agente visual vai analisar a captura de ecrã.",
             )
-            password_element.send_keys(Keys.ENTER)
-            self._visual_pulse()
-            self._emit("keyboard", "Enter enviado para o formulário de login")
 
         time.sleep(1.2)
         try:
@@ -396,7 +404,8 @@ class BrowserSession:
         self._visual_status("LOGIN SUBMETIDO — A AGUARDAR RESPOSTA", "#77B9FF")
         state = self.detect_login_form()
         return {
-            "submitted": True,
+            "submitted": not needs_agent_recovery,
+            "needs_agent_recovery": needs_agent_recovery,
             "login_required": bool(state.get("required")),
             "url": self.current_url(),
             "title": self.page_title(),
