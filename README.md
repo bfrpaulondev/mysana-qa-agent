@@ -119,31 +119,39 @@ Depois:
 .\.venv\Scripts\python.exe -m app.main doctor
 ```
 
-## Dashboard visual
+## Dashboard visual — modo Computer Use
 
-Depois do setup, inicia a interface visual:
+Depois do setup:
 
 ```powershell
-.\\.venv\\Scripts\\python.exe -m app.main dashboard
+.\.venv\Scripts\python.exe -m app.main dashboard
 ```
 
-O dashboard abre automaticamente em:
+Abre localmente em `http://127.0.0.1:8765`.
 
-```text
-http://127.0.0.1:8765
+O botão **Abrir Chromium e ir ao MySANA** lança um browser Chromium visível. O agente mostra cada acção directamente na página:
+
+- cursor virtual com animação até ao alvo;
+- borda/halo forte no elemento que vai receber a acção;
+- etiqueta fixa no topo: NAVEGAR, CLICAR, ESCREVER, SELECCIONAR, VALIDAR;
+- feed das acções em tempo real no dashboard.
+
+Se for detectado um campo de password, o dashboard pede o login. Podes:
+
+1. introduzir utilizador/password no modal local e observar o agente escrever no Chromium; ou
+2. escolher **Digitar manualmente no Chromium**.
+
+As credenciais enviadas pelo modal são usadas apenas nessa chamada local a `127.0.0.1`; não são guardadas no runtime, relatório, ficheiros ou GitHub.
+
+O primeiro **Iniciar teste visual** continua read-only: o cursor percorre até 10 elementos visíveis, destaca-os, tira screenshot e gera o relatório. Não clica nem preenche dados de negócio.
+
+Para forçar o executável Chromium no Windows:
+
+```env
+QA_CHROMIUM_BINARY=C:\caminho\para\chromium.exe
 ```
 
-A interface mostra:
-
-- estado/configuração de Groq, NVIDIA NIM e OpenAI;
-- último teste de conectividade dos providers e latência;
-- estado da sessão Chrome/MySANA;
-- botão **Abrir MySANA**;
-- botão **Testar providers**;
-- botão **Iniciar teste** para um smoke test read-only;
-- resultado e pasta local das evidências.
-
-O dashboard é servido apenas em `127.0.0.1` e não expõe API keys. O primeiro teste visual é propositadamente read-only: lê URL/título, conta elementos interactivos, tira screenshot e gera relatório sem clicar ou preencher campos.
+Se ficar vazio, o projecto procura Chromium automaticamente e, se não encontrar, usa Chrome como browser Chromium-based.
 
 ## Primeiro login
 
