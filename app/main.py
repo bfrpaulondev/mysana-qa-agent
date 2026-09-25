@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 
 from browser.session import BrowserSession
@@ -20,21 +21,24 @@ def configure_logging() -> None:
 
 
 def cmd_doctor(settings: Settings) -> int:
-    import os
+    provider = ProviderRouter(settings)
 
-    providers = {
-        "Groq": bool(os.getenv("GROQ_API_KEY")),
-        "NVIDIA NIM": bool(os.getenv("NVIDIA_NIM_API_KEY")),
-        "OpenAI": bool(os.getenv("OPENAI_API_KEY")),
-    }
     print("MySANA QA Agent doctor")
     print(f"Base URL: {settings.base_url}")
     print(f"Allowed hosts: {', '.join(settings.allowed_hosts)}")
     print(f"Headless: {settings.headless}")
     print(f"Paid fallback enabled: {settings.enable_paid_fallback}")
     print(f"LLM call budget: {settings.max_llm_calls_per_task}")
-    for name, configured in providers.items():
+    print(f"Model chain: {' -> '.join(settings.llm_models)}")
+    print(
+        "NVIDIA NIM endpoint: "
+        f"{os.getenv('NVIDIA_NIM_API_BASE', 'https://integrate.api.nvidia.com/v1')}"
+    )
+
+    for name, configured in provider.provider_status().items():
         print(f"{name}: {'configured' if configured else 'missing'}")
+
+    print("Secrets: hidden (doctor never prints API keys)")
     return 0
 
 
