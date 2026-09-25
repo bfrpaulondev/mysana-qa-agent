@@ -1,0 +1,18 @@
+{
+  "name": "mysana-smoke-example",
+  "steps": [
+    {
+      "action": "navigate",
+      "url": "${MYSANA_BASE_URL}"
+    },
+    {
+      "action": "wait",
+      "seconds": 1
+    },
+    {
+      "action": "assert_text",
+      "text": "SANA",
+      "continue_on_error": true
+    }
+  ]
+}
