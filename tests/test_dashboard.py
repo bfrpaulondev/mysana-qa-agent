@@ -38,6 +38,25 @@ class DashboardRuntimeTests(unittest.TestCase):
         self.assertTrue(any(item["name"] == "Groq" and item["configured"] for item in payload))
         self.assertTrue(any(item["name"] == "NVIDIA NIM" and item["configured"] for item in payload))
 
+    def test_openai_primary_is_enabled_even_when_paid_fallback_is_off(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-openai-secret"}, clear=True):
+            runtime = DashboardRuntime(
+                Settings(
+                    llm_models=(
+                        "openai/gpt-5.6-luna",
+                        "groq/openai/gpt-oss-120b",
+                    ),
+                    vision_model="openai/gpt-5.6-luna",
+                    enable_paid_fallback=False,
+                )
+            )
+            openai = next(item for item in runtime.provider_status() if item["name"] == "OpenAI")
+
+        self.assertTrue(openai["configured"])
+        self.assertTrue(openai["enabled"])
+        self.assertEqual(openai["role"], "primary")
+        self.assertTrue(openai["vision"])
+
     def test_openai_is_disabled_when_paid_fallback_is_off(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-openai-secret"}, clear=True):
             runtime = DashboardRuntime(Settings(enable_paid_fallback=False))
@@ -387,7 +406,7 @@ class DashboardRuntimeTests(unittest.TestCase):
         runtime = DashboardRuntime(Settings())
         payload = runtime.status_payload()
         self.assertEqual(payload["version"], DASHBOARD_VERSION)
-        self.assertIn("live-steering", payload["version"])
+        self.assertIn("openai-primary", payload["version"])
 
     def test_agent_plan_requires_open_browser(self):
         runtime = DashboardRuntime(Settings())
