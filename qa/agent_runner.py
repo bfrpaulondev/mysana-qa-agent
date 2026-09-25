@@ -83,6 +83,7 @@ Planning rules:
             completion = self.provider.vision_completion(
                 prompt,
                 self.browser.screenshot_base64(),
+                max_tokens=500,
             )
         except AllProvidersFailed as exc:
             self._emit("vision", f"Vision indisponível no planeamento; fallback texto: {exc}")
@@ -108,7 +109,8 @@ Planning rules:
                             f"DOM: {compact_snapshot}"
                         ),
                     },
-                ]
+                ],
+                max_tokens=500,
             )
 
         data = self._parse_json_object(completion.content)
@@ -358,7 +360,11 @@ Planning rules:
         prompt = self._visual_prompt(goal, snapshot, feedback, steering)
         try:
             image_base64 = self.browser.screenshot_base64()
-            return self.provider.vision_completion(prompt, image_base64)
+            return self.provider.vision_completion(
+                prompt,
+                image_base64,
+                max_tokens=320,
+            )
         except AllProvidersFailed as exc:
             self._emit("vision", f"Vision indisponível; fallback DOM/texto: {exc}")
             self._state(
@@ -368,7 +374,8 @@ Planning rules:
                 provider="text fallback",
             )
             return self.provider.completion(
-                self._text_messages(goal, snapshot, feedback, steering)
+                self._text_messages(goal, snapshot, feedback, steering),
+                max_tokens=320,
             )
 
     def _visual_prompt(
