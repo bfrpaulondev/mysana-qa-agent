@@ -41,7 +41,7 @@ class Settings:
     evidence_dir: Path = field(default_factory=lambda: ROOT_DIR / "runtime" / "evidence")
     llm_models: tuple[str, ...] = (
         "groq/openai/gpt-oss-120b",
-        "nvidia_nim/openai/gpt-oss-120b",
+        "nvidia_nim/z-ai/glm-5.3",
         "openai/gpt-5.6-luna",
     )
     max_llm_calls_per_task: int = 8
@@ -69,7 +69,7 @@ class Settings:
             ).expanduser().resolve(),
             llm_models=_env_list(
                 "QA_LLM_MODELS",
-                "groq/openai/gpt-oss-120b,nvidia_nim/openai/gpt-oss-120b,openai/gpt-5.6-luna",
+                "groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3,openai/gpt-5.6-luna",
             ),
             max_llm_calls_per_task=_env_int("QA_MAX_LLM_CALLS_PER_TASK", 8),
             max_agent_steps=_env_int("QA_MAX_AGENT_STEPS", 10),
