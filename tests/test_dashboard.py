@@ -168,11 +168,122 @@ class DashboardRuntimeTests(unittest.TestCase):
         thread.join(timeout=1)
         self.assertEqual(results, [False])
 
+    def test_approve_always_enables_rule_and_skips_future_prompt(self):
+        runtime = DashboardRuntime(Settings(approval_timeout_seconds=2))
+        results = []
+
+        thread = threading.Thread(
+            target=lambda: results.append(
+                runtime.request_approval(
+                    {
+                        "action": "click",
+                        "label": "Clicar em Continuar",
+                        "target": "#continuar",
+                        "secret": False,
+                        "value_preview": None,
+                        "url": "https://mysana.sanahotels.com/test",
+                        "title": "Teste",
+                    }
+                )
+            )
+        )
+        thread.start()
+
+        for _ in range(50):
+            if runtime.pending_approval:
+                break
+            time.sleep(0.01)
+
+        approval_id = runtime.pending_approval["id"]
+        result = runtime.resolve_approval(
+            approval_id,
+            True,
+            remember_type=True,
+        )
+        thread.join(timeout=1)
+
+        self.assertEqual(results, [True])
+        self.assertEqual(result["remembered_type"], "click")
+        self.assertIn("click", runtime.auto_approve_rules)
+
+        second = runtime.request_approval(
+            {
+                "action": "click",
+                "label": "Clicar noutro botão",
+                "target": "#outro",
+                "secret": False,
+                "value_preview": None,
+                "url": "https://mysana.sanahotels.com/test",
+                "title": "Teste",
+            }
+        )
+        self.assertTrue(second)
+        self.assertIsNone(runtime.pending_approval)
+
+    def test_disable_auto_approval_rule(self):
+        runtime = DashboardRuntime(Settings())
+        runtime.auto_approve_rules.add("select")
+
+        result = runtime.disable_auto_approval("select")
+
+        self.assertTrue(result["changed"])
+        self.assertFalse(result["active"])
+        self.assertNotIn("select", runtime.auto_approve_rules)
+
+    def test_secret_write_ignores_write_auto_approval_rule(self):
+        runtime = DashboardRuntime(Settings(approval_timeout_seconds=2))
+        runtime.auto_approve_rules.add("write")
+        results = []
+
+        thread = threading.Thread(
+            target=lambda: results.append(
+                runtime.request_approval(
+                    {
+                        "action": "write",
+                        "label": "Escrever password",
+                        "target": "#password",
+                        "secret": True,
+                        "value_preview": None,
+                        "value_length": 12,
+                        "url": "https://mysana.sanahotels.com/login",
+                        "title": "Login",
+                    }
+                )
+            )
+        )
+        thread.start()
+
+        for _ in range(50):
+            if runtime.pending_approval:
+                break
+            time.sleep(0.01)
+
+        self.assertTrue(thread.is_alive())
+        self.assertIsNotNone(runtime.pending_approval)
+
+        approval_id = runtime.pending_approval["id"]
+        runtime.resolve_approval(approval_id, False)
+        thread.join(timeout=1)
+        self.assertEqual(results, [False])
+
+    def test_status_payload_exposes_active_rules_without_secrets(self):
+        runtime = DashboardRuntime(Settings())
+        runtime.auto_approve_rules.update({"click", "write"})
+
+        payload = runtime.status_payload()
+
+        actions = {rule["action"] for rule in payload["auto_approve_rules"]}
+        self.assertEqual(actions, {"click", "write"})
+        write_rule = next(
+            rule for rule in payload["auto_approve_rules"] if rule["action"] == "write"
+        )
+        self.assertTrue(write_rule["secret_exception"])
+
     def test_status_payload_includes_build_version(self):
         runtime = DashboardRuntime(Settings())
         payload = runtime.status_payload()
         self.assertEqual(payload["version"], DASHBOARD_VERSION)
-        self.assertIn("agent-chat", payload["version"])
+        self.assertIn("approval-rules", payload["version"])
 
     def test_agent_plan_requires_open_browser(self):
         runtime = DashboardRuntime(Settings())
@@ -194,6 +305,8 @@ class DashboardRuntimeTests(unittest.TestCase):
         self.assertIn("/api/session/open", paths)
         self.assertIn("/api/session/login", paths)
         self.assertIn("/api/approvals/{approval_id}/approve", paths)
+        self.assertIn("/api/approvals/{approval_id}/approve-always", paths)
+        self.assertIn("/api/approval-rules/{action_type}", paths)
         self.assertIn("/api/approvals/{approval_id}/reject", paths)
         self.assertIn("/api/agent/plan", paths)
         self.assertIn("/api/agent/run", paths)
