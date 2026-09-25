@@ -110,6 +110,87 @@
       </div>
     </section>
 
+    <section id="agentMonitorPanel" class="panel agent-monitor-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Live agent trace</p>
+          <h2>O que o agente está a fazer</h2>
+        </div>
+        <span id="agentPhaseBadge" class="badge badge-neutral">EM ESPERA</span>
+      </div>
+
+      <div class="agent-monitor-grid">
+        <div class="agent-monitor-metric">
+          <span class="metric-label">Passo</span>
+          <strong id="agentStep">—</strong>
+        </div>
+        <div class="agent-monitor-metric">
+          <span class="metric-label">Tempo nesta fase</span>
+          <strong id="agentElapsed">0s</strong>
+        </div>
+        <div class="agent-monitor-metric">
+          <span class="metric-label">Modelo / provider</span>
+          <strong id="agentProvider">—</strong>
+        </div>
+        <div class="agent-monitor-metric">
+          <span class="metric-label">Correcções em fila</span>
+          <strong id="agentSteeringCount">0</strong>
+        </div>
+      </div>
+
+      <div class="agent-current-detail">
+        <span class="metric-label">Estado actual</span>
+        <strong id="agentDetail">Agente em espera.</strong>
+      </div>
+
+      <div id="decisionTrace" class="decision-trace hidden">
+        <div>
+          <span class="metric-label">Observação</span>
+          <p id="decisionObservation">—</p>
+        </div>
+        <div>
+          <span class="metric-label">Próxima acção</span>
+          <p id="decisionAction">—</p>
+        </div>
+        <div>
+          <span class="metric-label">Justificação curta</span>
+          <p id="decisionReason">—</p>
+        </div>
+        <div>
+          <span class="metric-label">Confiança</span>
+          <p id="decisionConfidence">—</p>
+        </div>
+      </div>
+
+      <form id="agentSteerForm" class="agent-steer-form">
+        <label class="field">
+          <span>Corrigir agente agora</span>
+          <textarea
+            id="agentSteerMessage"
+            rows="2"
+            maxlength="2000"
+            placeholder="Ex.: Não abras Despesas. Vai primeiro a Feiras e Eventos e procura o processo actual."
+            disabled
+          ></textarea>
+        </label>
+
+        <label class="steer-option">
+          <input id="rejectPendingOnSteer" type="checkbox" checked>
+          <span>Se houver uma acção pendente, rejeitá-la e obrigar o agente a reavaliar.</span>
+        </label>
+
+        <div class="steer-actions">
+          <button id="stopAgentButton" class="button button-reject" type="button" disabled>Parar agente</button>
+          <button id="steerAgentButton" class="button button-secondary" type="submit" disabled>Enviar correcção</button>
+        </div>
+      </form>
+
+      <p class="hint">
+        Este painel mostra um resumo operacional observável — não o raciocínio interno oculto do modelo.
+        Uma correcção enviada durante uma chamada ao modelo é aplicada assim que essa chamada terminar.
+      </p>
+    </section>
+
     <section id="approvalPanel" class="panel approval-panel hidden">
       <div class="approval-accent"></div>
       <div class="panel-header">
