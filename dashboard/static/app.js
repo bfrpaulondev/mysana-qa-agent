@@ -176,8 +176,10 @@ function renderApproval(approval) {
     keypress: "TECLA",
   };
 
-  $("approvalActionBadge").textContent =
+  const actionLabel =
     actionNames[approval.action] || String(approval.action || "ACÇÃO").toUpperCase();
+
+  $("approvalActionBadge").textContent = actionLabel;
   $("approvalLabel").textContent = approval.label || "Acção pendente";
   $("approvalTarget").textContent = approval.target || "—";
 
@@ -198,9 +200,50 @@ function renderApproval(approval) {
     "O cursor já está no alvo no Chromium. Confirma se queres executar esta acção.";
 
   $("approveApprovalButton").dataset.approvalId = approval.id;
+  $("approveAlwaysButton").dataset.approvalId = approval.id;
   $("rejectApprovalButton").dataset.approvalId = approval.id;
+
+  const canRemember = ["click", "write", "select"].includes(approval.action);
+  $("approveAlwaysButton").classList.toggle("hidden", !canRemember);
+  $("approveAlwaysButton").textContent = canRemember
+    ? `Sempre aprovar ${actionLabel}`
+    : "Sempre aprovar este tipo";
+
   $("approveApprovalButton").disabled = state.approvalBusy;
+  $("approveAlwaysButton").disabled = state.approvalBusy || !canRemember;
   $("rejectApprovalButton").disabled = state.approvalBusy;
+
+  $("approvalHint").textContent = approval.secret
+    ? "Esta acção contém um valor secreto. Mesmo que actives a regra ESCREVER, passwords e outros valores secretos continuarão a pedir aprovação manual."
+    : "Podes aprovar apenas esta acção ou activar uma regra para este tipo até fechares a sessão Chromium.";
+}
+
+function renderApprovalRules(rules) {
+  const panel = $("approvalRulesPanel");
+  const list = $("approvalRulesList");
+
+  if (!rules || !rules.length) {
+    panel.classList.add("hidden");
+    list.innerHTML = "";
+    return;
+  }
+
+  panel.classList.remove("hidden");
+  list.innerHTML = rules.map((rule) => `
+    <div class="approval-rule-chip">
+      <div>
+        <strong>Sempre aprovar: ${escapeHtml(rule.label)}</strong>
+        <span>${rule.secret_exception ? "Excepto passwords/valores secretos" : "Válida até fechar a sessão"}</span>
+      </div>
+      <button
+        class="button button-ghost approval-rule-disable"
+        type="button"
+        data-disable-rule="${escapeHtml(rule.action)}"
+      >
+        Desactivar
+      </button>
+    </div>
+  `).join("");
 }
 
 function renderActivity(activity, testRunning) {
@@ -267,6 +310,7 @@ async function refresh() {
     renderSession(status.session, status.test_running);
     renderPlan(status.current_plan, status.current_goal, status.test_running);
     renderApproval(status.pending_approval);
+    renderApprovalRules(status.auto_approve_rules || []);
     renderActivity(status.activity, status.test_running);
     renderLastTest(status.last_test);
 
@@ -381,23 +425,40 @@ $("loginForm").addEventListener("submit", async (event) => {
   }
 });
 
-async function resolveApproval(approved) {
+async function resolveApproval(mode) {
   if (state.approvalBusy) return;
 
-  const button = approved ? $("approveApprovalButton") : $("rejectApprovalButton");
+  const button = mode === "reject"
+    ? $("rejectApprovalButton")
+    : mode === "always"
+      ? $("approveAlwaysButton")
+      : $("approveApprovalButton");
+
   const approvalId = button.dataset.approvalId;
   if (!approvalId) return;
 
   state.approvalBusy = true;
   $("approveApprovalButton").disabled = true;
+  $("approveAlwaysButton").disabled = true;
   $("rejectApprovalButton").disabled = true;
 
+  const endpoint = mode === "reject"
+    ? "reject"
+    : mode === "always"
+      ? "approve-always"
+      : "approve";
+
   try {
-    await request(
-      `/api/approvals/${encodeURIComponent(approvalId)}/${approved ? "approve" : "reject"}`,
+    const result = await request(
+      `/api/approvals/${encodeURIComponent(approvalId)}/${endpoint}`,
       { method: "POST" }
     );
-    toast(approved ? "Acção aprovada." : "Acção rejeitada.");
+
+    if (mode === "always" && result.remembered_type) {
+      toast(`Regra activa: sempre aprovar ${result.remembered_type.toUpperCase()} nesta sessão.`);
+    } else {
+      toast(mode === "reject" ? "Acção rejeitada." : "Acção aprovada uma vez.");
+    }
   } catch (error) {
     toast(error.message);
   } finally {
@@ -406,8 +467,29 @@ async function resolveApproval(approved) {
   }
 }
 
-$("approveApprovalButton").addEventListener("click", () => resolveApproval(true));
-$("rejectApprovalButton").addEventListener("click", () => resolveApproval(false));
+$("approveApprovalButton").addEventListener("click", () => resolveApproval("once"));
+$("approveAlwaysButton").addEventListener("click", () => resolveApproval("always"));
+$("rejectApprovalButton").addEventListener("click", () => resolveApproval("reject"));
+
+$("approvalRulesList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-disable-rule]");
+  if (!button) return;
+
+  const action = button.dataset.disableRule;
+  button.disabled = true;
+
+  try {
+    await request(
+      `/api/approval-rules/${encodeURIComponent(action)}`,
+      { method: "DELETE" }
+    );
+    toast(`Regra ${action.toUpperCase()} desactivada.`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    await refresh();
+  }
+});
 
 $("loginCancelButton").addEventListener("click", () => {
   state.loginModalSuppressed = true;
