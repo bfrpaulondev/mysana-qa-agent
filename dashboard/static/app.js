@@ -1,6 +1,5 @@
 const state = {
   busy: false,
-  lastActivityId: null,
   loginModalSuppressed: false,
   approvalBusy: false,
 };
@@ -86,14 +85,20 @@ function renderSession(session, testRunning) {
   const badge = $("sessionBadge");
 
   badge.className = `badge ${open ? "badge-pass" : error ? "badge-fail" : "badge-neutral"}`;
-  badge.textContent = open ? (session.login_required ? "Login necessário" : "Aberta") : error ? "Erro" : "Fechada";
+  badge.textContent = open
+    ? (session.login_required ? "Login necessário" : "Aberta")
+    : error
+      ? "Erro"
+      : "Fechada";
 
   $("sessionTitle").textContent = session.title || session.message || "Chromium QA ainda não foi aberto";
   $("sessionUrl").textContent = session.url || "mysana.sanahotels.com";
   $("browserName").textContent = session.browser || "Chromium";
-  $("startTestButton").disabled = !open || session.login_required || state.busy || testRunning;
+
   $("closeSessionButton").disabled = !open || state.busy || testRunning;
   $("openSessionButton").disabled = state.busy || testRunning;
+  $("agentCommand").disabled = !open || state.busy || testRunning;
+  $("planAgentButton").disabled = !open || state.busy || testRunning;
 
   if (session.login_required && !state.loginModalSuppressed && !state.busy) {
     setLoginModal(true);
@@ -102,6 +107,56 @@ function renderSession(session, testRunning) {
     state.loginModalSuppressed = false;
     $("loginPassword").value = "";
   }
+}
+
+function renderPlan(plan, goal, testRunning) {
+  const panel = $("planPanel");
+  const messages = $("chatMessages");
+
+  if (!goal && !plan) {
+    panel.classList.add("hidden");
+    messages.innerHTML = `
+      <div class="chat-message chat-agent">
+        <span class="chat-role">Agente</span>
+        <p>Abre o Chromium, navega até ao ecrã pretendido e escreve aqui a tarefa. Primeiro vou gerar o plano; nada será executado nessa fase.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const userBubble = goal
+    ? `
+      <div class="chat-message chat-user">
+        <span class="chat-role">Tu</span>
+        <p>${escapeHtml(goal)}</p>
+      </div>
+    `
+    : "";
+
+  const agentBubble = plan
+    ? `
+      <div class="chat-message chat-agent">
+        <span class="chat-role">Agente</span>
+        <p>${escapeHtml(plan.summary || "Plano pronto.")}</p>
+      </div>
+    `
+    : "";
+
+  messages.innerHTML = userBubble + agentBubble;
+
+  if (!plan) {
+    panel.classList.add("hidden");
+    return;
+  }
+
+  panel.classList.remove("hidden");
+  $("planSummary").textContent = plan.summary || "Plano proposto";
+  $("planModelBadge").textContent = plan.model || "modelo";
+  $("planSteps").innerHTML = (plan.steps || [])
+    .map((step) => `<li>${escapeHtml(step)}</li>`)
+    .join("");
+
+  $("executePlanButton").disabled = state.busy || testRunning;
 }
 
 function renderApproval(approval) {
@@ -121,7 +176,8 @@ function renderApproval(approval) {
     keypress: "TECLA",
   };
 
-  $("approvalActionBadge").textContent = actionNames[approval.action] || String(approval.action || "ACÇÃO").toUpperCase();
+  $("approvalActionBadge").textContent =
+    actionNames[approval.action] || String(approval.action || "ACÇÃO").toUpperCase();
   $("approvalLabel").textContent = approval.label || "Acção pendente";
   $("approvalTarget").textContent = approval.target || "—";
 
@@ -153,14 +209,19 @@ function renderActivity(activity, testRunning) {
   badge.className = `badge ${testRunning ? "badge-pass" : "badge-neutral"}`;
 
   if (!activity || !activity.length) {
-    $("activityFeed").innerHTML = '<div class="empty-activity">As acções aparecerão aqui enquanto vês o Chromium a trabalhar.</div>';
+    $("activityFeed").innerHTML =
+      '<div class="empty-activity">Os planos, decisões e resultados aparecerão aqui.</div>';
     return;
   }
 
   $("activityFeed").innerHTML = activity.slice().reverse().map((item) => {
     const time = new Date(item.timestamp * 1000).toLocaleTimeString("pt-PT");
+    const className = ["think", "plan", "observe", "recover"].includes(item.action)
+      ? " activity-item-reasoning"
+      : "";
+
     return `
-      <div class="activity-item">
+      <div class="activity-item${className}">
         <span class="activity-type">${escapeHtml(item.action)}</span>
         <span class="activity-message">${escapeHtml(item.message)}</span>
         <time>${escapeHtml(time)}</time>
@@ -178,7 +239,7 @@ function renderLastTest(test) {
 
   if (test.status === "RUNNING") {
     $("emptyExecution").classList.remove("hidden");
-    $("emptyExecution").textContent = test.message || "Teste visual em execução…";
+    $("emptyExecution").textContent = test.message || "Agente em execução…";
     $("testResult").classList.add("hidden");
     $("testBadge").textContent = "RUNNING";
     $("testBadge").className = "badge badge-warn";
@@ -194,15 +255,17 @@ function renderLastTest(test) {
 
   const badge = $("testBadge");
   badge.textContent = test.status || "—";
-  badge.className = `badge ${test.ok ? "badge-pass" : "badge-fail"}`;
+  badge.className = `badge ${test.ok ? "badge-pass" : test.status === "BLOCKED" ? "badge-warn" : "badge-fail"}`;
 }
 
 async function refresh() {
   try {
     const status = await request("/api/status");
     $("buildBadge").textContent = status.version ? `build ${status.version}` : "build desconhecida";
+
     renderProviders(status.providers);
     renderSession(status.session, status.test_running);
+    renderPlan(status.current_plan, status.current_goal, status.test_running);
     renderApproval(status.pending_approval);
     renderActivity(status.activity, status.test_running);
     renderLastTest(status.last_test);
@@ -224,7 +287,7 @@ async function withBusy(button, action) {
   state.busy = true;
   const previous = button.textContent;
   button.disabled = true;
-  button.textContent = "A executar…";
+  button.textContent = "A processar…";
   try {
     await action();
   } catch (error) {
@@ -254,8 +317,25 @@ $("closeSessionButton").addEventListener("click", () => withBusy($("closeSession
   toast("Sessão Chromium fechada.");
 }));
 
-$("startTestButton").addEventListener("click", () => withBusy($("startTestButton"), async () => {
-  const result = await request("/api/tests/start", { method: "POST" });
+$("agentCommandForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const command = $("agentCommand").value.trim();
+  if (!command) {
+    toast("Escreve primeiro o que queres que o agente faça.");
+    return;
+  }
+
+  withBusy($("planAgentButton"), async () => {
+    const result = await request("/api/agent/plan", {
+      method: "POST",
+      body: JSON.stringify({ command }),
+    });
+    toast(result.message);
+  });
+});
+
+$("executePlanButton").addEventListener("click", () => withBusy($("executePlanButton"), async () => {
+  const result = await request("/api/agent/run", { method: "POST" });
   toast(result.message);
 }));
 
@@ -277,17 +357,20 @@ $("loginForm").addEventListener("submit", async (event) => {
   button.disabled = true;
   button.textContent = "A aguardar aprovações…";
 
-  // Remove the credential values from the DOM immediately. The request body
-  // keeps them only long enough to execute the local assisted login.
   $("loginPassword").value = "";
   setLoginModal(false);
 
   try {
-    await request("/api/session/login", {
+    const result = await request("/api/session/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
-    toast("Login assistido concluído.");
+
+    if (result.agent_recovery_started) {
+      toast("Credenciais preenchidas. O agente visual está a decidir como concluir o login.");
+    } else {
+      toast("Login assistido submetido.");
+    }
   } catch (error) {
     toast(error.message);
   } finally {
