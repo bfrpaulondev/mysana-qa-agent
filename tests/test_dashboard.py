@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -60,6 +62,112 @@ class DashboardRuntimeTests(unittest.TestCase):
         self.assertNotIn("secret-nvidia-value", serialized)
         self.assertNotIn("password", serialized.lower())
 
+    def test_approval_blocks_until_approved(self):
+        runtime = DashboardRuntime(Settings(approval_timeout_seconds=2))
+        results = []
+
+        thread = threading.Thread(
+            target=lambda: results.append(
+                runtime.request_approval(
+                    {
+                        "action": "click",
+                        "label": "Clicar em Guardar",
+                        "target": "#guardar",
+                        "secret": False,
+                        "value_preview": None,
+                        "url": "https://mysana.sanahotels.com/test",
+                        "title": "Teste",
+                    }
+                )
+            )
+        )
+        thread.start()
+
+        for _ in range(50):
+            if runtime.pending_approval:
+                break
+            time.sleep(0.01)
+
+        self.assertTrue(thread.is_alive())
+        self.assertIsNotNone(runtime.pending_approval)
+        approval_id = runtime.pending_approval["id"]
+
+        runtime.resolve_approval(approval_id, True)
+        thread.join(timeout=1)
+
+        self.assertEqual(results, [True])
+        self.assertIsNone(runtime.pending_approval)
+
+    def test_approval_reject_stops_action(self):
+        runtime = DashboardRuntime(Settings(approval_timeout_seconds=2))
+        results = []
+
+        thread = threading.Thread(
+            target=lambda: results.append(
+                runtime.request_approval(
+                    {
+                        "action": "write",
+                        "label": "Escrever valor",
+                        "target": "#valor",
+                        "secret": False,
+                        "value_preview": "12,30",
+                        "url": "https://mysana.sanahotels.com/test",
+                        "title": "Teste",
+                    }
+                )
+            )
+        )
+        thread.start()
+
+        for _ in range(50):
+            if runtime.pending_approval:
+                break
+            time.sleep(0.01)
+
+        approval_id = runtime.pending_approval["id"]
+        runtime.resolve_approval(approval_id, False)
+        thread.join(timeout=1)
+
+        self.assertEqual(results, [False])
+
+    def test_secret_approval_never_exposes_value(self):
+        runtime = DashboardRuntime(Settings(approval_timeout_seconds=2))
+        results = []
+
+        thread = threading.Thread(
+            target=lambda: results.append(
+                runtime.request_approval(
+                    {
+                        "action": "write",
+                        "label": "Escrever password",
+                        "target": "#password",
+                        "secret": True,
+                        "value_preview": "super-secret-password",
+                        "value_length": 21,
+                        "url": "https://mysana.sanahotels.com/login",
+                        "title": "Login",
+                    }
+                )
+            )
+        )
+        thread.start()
+
+        for _ in range(50):
+            if runtime.pending_approval:
+                break
+            time.sleep(0.01)
+
+        payload = runtime.status_payload()
+        serialized = repr(payload)
+        self.assertNotIn("super-secret-password", serialized)
+        self.assertIsNone(payload["pending_approval"]["value_preview"])
+        self.assertEqual(payload["pending_approval"]["value_length"], 21)
+
+        approval_id = payload["pending_approval"]["id"]
+        runtime.resolve_approval(approval_id, False)
+        thread.join(timeout=1)
+        self.assertEqual(results, [False])
+
     def test_dashboard_routes_exist(self):
         app = create_app(Settings())
         paths = {route.path for route in app.routes}
@@ -68,6 +176,8 @@ class DashboardRuntimeTests(unittest.TestCase):
         self.assertIn("/api/providers/test", paths)
         self.assertIn("/api/session/open", paths)
         self.assertIn("/api/session/login", paths)
+        self.assertIn("/api/approvals/{approval_id}/approve", paths)
+        self.assertIn("/api/approvals/{approval_id}/reject", paths)
         self.assertIn("/api/session/close", paths)
         self.assertIn("/api/tests/start", paths)
 
