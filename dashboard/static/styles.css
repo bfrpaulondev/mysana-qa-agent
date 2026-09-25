@@ -447,3 +447,152 @@ h2 {
     grid-column: auto;
   }
 }
+
+
+.browser-name {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(141, 184, 255, .09);
+  color: var(--blue);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.activity-panel {
+  margin-bottom: 20px;
+}
+
+.activity-feed {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  margin-top: 20px;
+  overflow: auto;
+}
+
+.activity-item {
+  display: grid;
+  grid-template-columns: 100px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface-2);
+}
+
+.activity-type {
+  color: var(--accent);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: .72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.activity-message {
+  min-width: 0;
+  overflow: hidden;
+  color: #dce2ec;
+  font-size: .84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-item time {
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.empty-activity {
+  display: grid;
+  min-height: 80px;
+  place-items: center;
+  color: var(--muted);
+  text-align: center;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 5, 8, .72);
+  backdrop-filter: blur(10px);
+}
+
+.modal-card {
+  width: min(560px, 100%);
+  padding: 24px;
+  border: 1px solid rgba(124, 255, 178, .25);
+  border-radius: 24px;
+  background: #111620;
+  box-shadow: 0 28px 100px rgba(0, 0, 0, .55), 0 0 0 1px rgba(124, 255, 178, .05);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.modal-copy {
+  margin: 20px 0;
+  color: #cbd2de;
+  line-height: 1.65;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.field input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  outline: none;
+  background: #0b0f16;
+  color: var(--text);
+  font: inherit;
+}
+
+.field input:focus {
+  border-color: rgba(124, 255, 178, .72);
+  box-shadow: 0 0 0 4px rgba(124, 255, 178, .08);
+}
+
+.modal-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+@media (max-width: 620px) {
+  .activity-item {
+    grid-template-columns: 84px 1fr;
+  }
+
+  .activity-item time {
+    display: none;
+  }
+
+  .modal-actions {
+    grid-template-columns: 1fr;
+  }
+}
