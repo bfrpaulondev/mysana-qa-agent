@@ -11,21 +11,31 @@ pensada especificamente para correr num PC normal sem LLM local pesado.
 - Browser Chrome visível e perfil persistente para login manual.
 - `workflow`: testes determinísticos e baratos, sem IA em cada clique.
 - `agent`: exploração limitada com IA quando ainda não existe workflow.
-- Router de modelos: **OpenAI → Groq → NVIDIA NIM**.
-- OpenAI GPT-5.6 Luna é o provider primário para testar menor latência; Groq/NVIDIA ficam como fallback.
+- Execução interactiva: **OpenAI Computer Use nativo** sobre o Chromium visível.
+- Planner/fallback: **OpenAI → Groq → NVIDIA NIM**.
+- O motor nativo recebe screenshots reais, devolve acções de rato/teclado e recebe uma nova screenshot após as acções.
 - Whitelist de domínios.
 - Bloqueio por defeito de apagar, aprovar, pagar, transferir e rejeitar.
 - Screenshot e relatório Markdown/JSON por execução.
 
 ## Modelos
 
-Por defeito:
+Por defeito, a **execução real** usa:
 
-1. `openai/gpt-5.6-luna` — primário
+```env
+QA_USE_NATIVE_COMPUTER=true
+QA_COMPUTER_MODEL=gpt-5.6-sol
+QA_COMPUTER_REASONING_EFFORT=low
+QA_COMPUTER_MAX_TURNS=20
+```
+
+O plano inicial e o fallback continuam com:
+
+1. `openai/gpt-5.6-luna` — planner primário
 2. `groq/openai/gpt-oss-120b` — fallback
 3. `nvidia_nim/z-ai/glm-5.3` — fallback
 
-Para screenshots/visão, o primário também é `openai/gpt-5.6-luna`.
+Assim, o plano pode continuar barato/rápido enquanto a navegação real usa o modelo Computer Use configurado.
 
 `QA_PREFER_OPENAI=true` força esta ordem mesmo se um `.env` antigo ainda tiver Groq/NVIDIA primeiro.
 Se OpenAI não estiver configurada ou falhar no fluxo textual, o router continua para Groq e NVIDIA.
@@ -100,7 +110,8 @@ Requisitos:
 
 - Python 3.11
 - Google Chrome
-- Uma chave Groq e/ou NVIDIA NIM
+- Uma chave OpenAI para o Computer Use nativo
+- Groq/NVIDIA opcionais como fallback do planner
 
 PowerShell:
 
@@ -132,19 +143,45 @@ Abre localmente em `http://127.0.0.1:8765`.
 2. Concluir o login assistido ou manual.
 3. Escrever no **Agent Chat** o objectivo, por exemplo:
    `Entra nas despesas e testa os campos obrigatórios sem gravar nem apagar nada.`
-4. O agente analisa a screenshot actual + DOM e gera um **plano proposto**.
+4. O planner analisa a página e gera um **plano proposto**.
 5. O plano aparece no chat e em **Acções do agente**.
-6. Só depois de **Executar plano** começa a execução.
-7. A cada passo o agente:
-   - tira nova screenshot;
-   - lê os elementos interactivos actuais;
-   - decide a próxima acção;
-   - move o cursor e destaca o alvo;
-   - aguarda aprovação no dashboard;
-   - executa a acção aprovada;
-   - observa novamente a página.
+6. Só depois de **Executar plano** começa a execução com o **OpenAI Computer Use nativo**.
+7. O ciclo real é:
+   - enviar a screenshot actual com detalhe original;
+   - receber acções estruturadas da ferramenta `computer`;
+   - converter coordenadas da screenshot para o viewport real do Chromium;
+   - mover/destacar o cursor no alvo;
+   - aguardar aprovação quando necessário;
+   - executar rato/teclado;
+   - capturar nova screenshot;
+   - devolvê-la à mesma conversa Responses API para o modelo reavaliar.
 
-O plano inicial é apenas uma previsão. O agente não fica preso a uma sequência cega: se a interface mudar, volta a analisar a nova captura antes de decidir o próximo passo.
+O plano inicial é apenas uma previsão. A execução visual não depende de `element_index` nem de selectors DOM para decidir cada clique.
+
+### Motor Computer Use nativo
+
+A execução do dashboard usa a ferramenta `computer` da Responses API quando:
+
+```env
+QA_USE_NATIVE_COMPUTER=true
+OPENAI_API_KEY=<chave-local>
+```
+
+Configuração recomendada para maior capacidade:
+
+```env
+QA_COMPUTER_MODEL=gpt-5.6-sol
+QA_COMPUTER_REASONING_EFFORT=low
+QA_COMPUTER_MAX_TURNS=20
+```
+
+Se quiseres priorizar custo/latência, podes testar:
+
+```env
+QA_COMPUTER_MODEL=gpt-5.6-luna
+```
+
+O dashboard mostra explicitamente **Computer Use · <modelo>** antes da execução. Se o Computer Use nativo estiver desligado ou não houver chave OpenAI, o agente volta ao motor DOM/vision anterior como fallback.
 
 ### Visão
 
