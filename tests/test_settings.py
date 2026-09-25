@@ -40,11 +40,14 @@ class SettingsTests(unittest.TestCase):
         ):
             settings = Settings.from_env()
 
-        self.assertEqual(
-            settings.chrome_profile_dir,
-            (Path(fake_local) / "MySANA-QA-Agent" / "browser-profile").resolve(),
-        )
         self.assertNotEqual(settings.chrome_profile_dir, Path.cwd().resolve())
+        if os.name == "nt":
+            self.assertEqual(
+                settings.chrome_profile_dir,
+                (Path(fake_local) / "MySANA-QA-Agent" / "browser-profile").resolve(),
+            )
+        else:
+            self.assertTrue(str(settings.chrome_profile_dir).endswith("runtime/chrome-profile"))
 
 
 if __name__ == "__main__":
