@@ -145,10 +145,28 @@
 
       <div class="approval-actions">
         <button id="rejectApprovalButton" class="button button-reject" type="button">Rejeitar</button>
-        <button id="approveApprovalButton" class="button button-approve" type="button">Aprovar e executar</button>
+        <button id="approveApprovalButton" class="button button-secondary" type="button">Aprovar uma vez</button>
+        <button id="approveAlwaysButton" class="button button-always" type="button">Sempre aprovar este tipo</button>
       </div>
 
-      <p class="hint">Nada é clicado, escrito ou seleccionado enquanto esta aprovação estiver pendente.</p>
+      <p id="approvalHint" class="hint">
+        Nada é clicado, escrito ou seleccionado enquanto esta aprovação estiver pendente.
+      </p>
+    </section>
+
+    <section id="approvalRulesPanel" class="panel approval-rules-panel hidden">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Regras de aprovação activas</p>
+          <h2>Auto-aprovação desta sessão</h2>
+        </div>
+        <span class="badge badge-warn">Só nesta sessão</span>
+      </div>
+
+      <div id="approvalRulesList" class="approval-rules-list"></div>
+      <p class="hint">
+        Estas regras desaparecem ao fechar a sessão Chromium. Passwords e outros valores secretos continuam sempre a pedir aprovação manual.
+      </p>
     </section>
 
     <section class="panel activity-panel">
