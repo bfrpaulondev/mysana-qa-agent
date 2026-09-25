@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
+import struct
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -130,6 +132,28 @@ _VISUAL_OVERLAY_JS = r"""
         this.current = element;
         this.status(text, color);
       },
+      point(x, y, text, color = "#7CFFB2") {
+        ensure();
+        this.clear();
+        const cursor = document.getElementById(CURSOR_ID);
+        const safeX = Math.max(14, Math.min(window.innerWidth - 14, x));
+        const safeY = Math.max(50, Math.min(window.innerHeight - 14, y));
+        cursor.style.left = safeX + "px";
+        cursor.style.top = safeY + "px";
+        cursor.style.borderColor = color;
+        cursor.style.boxShadow = "0 0 0 7px " + color + "22,0 0 26px " + color;
+        const element = document.elementFromPoint(safeX, safeY);
+        if (element && element.id !== ROOT_ID && !element.closest("#" + ROOT_ID)) {
+          element.dataset.qaOldOutline = element.style.outline || "";
+          element.dataset.qaOldBoxShadow = element.style.boxShadow || "";
+          element.dataset.qaOldOutlineOffset = element.style.outlineOffset || "";
+          element.style.outline = "4px solid " + color;
+          element.style.outlineOffset = "4px";
+          element.style.boxShadow = "0 0 0 9px " + color + "22,0 0 30px " + color + "77";
+          this.current = element;
+        }
+        this.status(text, color);
+      },
       pulse() {
         ensure();
         const cursor = document.getElementById(CURSOR_ID);
@@ -251,6 +275,342 @@ class BrowserSession:
     def screenshot_base64(self) -> str:
         self._require_driver()
         return self.driver.get_screenshot_as_base64()
+
+    def computer_observation(self) -> dict[str, Any]:
+        """Capture the exact viewport image used by native Computer Use."""
+        self._require_driver()
+        image_base64 = self.driver.get_screenshot_as_base64()
+        raw = base64.b64decode(image_base64)
+        if len(raw) < 24 or raw[:8] != b"\x89PNG\r\n\x1a\n":
+            raise RuntimeError("Unexpected screenshot format; PNG was expected.")
+
+        image_width, image_height = struct.unpack(">II", raw[16:24])
+        viewport = self.driver.execute_script(
+            "return {width: window.innerWidth, height: window.innerHeight, "
+            "devicePixelRatio: window.devicePixelRatio || 1};"
+        ) or {}
+
+        return {
+            "base64": image_base64,
+            "image_width": int(image_width),
+            "image_height": int(image_height),
+            "viewport_width": int(viewport.get("width") or image_width),
+            "viewport_height": int(viewport.get("height") or image_height),
+            "device_pixel_ratio": float(viewport.get("devicePixelRatio") or 1),
+        }
+
+    @staticmethod
+    def scale_computer_point(
+        x: float,
+        y: float,
+        observation: dict[str, Any],
+    ) -> tuple[float, float]:
+        image_width = max(float(observation.get("image_width") or 1), 1)
+        image_height = max(float(observation.get("image_height") or 1), 1)
+        viewport_width = max(float(observation.get("viewport_width") or image_width), 1)
+        viewport_height = max(float(observation.get("viewport_height") or image_height), 1)
+
+        return (
+            max(0.0, min(viewport_width - 1, float(x) * viewport_width / image_width)),
+            max(0.0, min(viewport_height - 1, float(y) * viewport_height / image_height)),
+        )
+
+    def execute_computer_action(
+        self,
+        action: dict[str, Any],
+        observation: dict[str, Any],
+    ) -> str:
+        """Execute one native OpenAI computer action against the visible Chromium."""
+        self._require_driver()
+        action_type = str(action.get("type") or "").strip().lower()
+
+        if action_type == "screenshot":
+            self._emit("computer", "Computer Use pediu uma nova screenshot")
+            return "Screenshot requested"
+
+        if action_type == "wait":
+            self._visual_status("COMPUTER USE — AGUARDAR", "#FFD66B")
+            self._emit("computer", "Computer Use está a aguardar a interface")
+            time.sleep(2)
+            self._ensure_current_url_allowed()
+            return "Waited 2 seconds"
+
+        if action_type in {"click", "double_click", "move", "scroll"}:
+            x, y = self.scale_computer_point(
+                float(action.get("x") or 0),
+                float(action.get("y") or 0),
+                observation,
+            )
+            target = self._describe_point(x, y)
+            label = f"{action_type.upper()} — {target[:90]}"
+            self._visual_point(x, y, label, "#7CFFB2")
+
+            if action_type in {"click", "double_click"}:
+                self.policy.ensure_click_allowed(target)
+                self._require_approval(
+                    action="click",
+                    label=label,
+                    target=target,
+                    value_preview=None,
+                    secret=False,
+                )
+                self._computer_click(
+                    x,
+                    y,
+                    button=str(action.get("button") or "left"),
+                    double=action_type == "double_click",
+                )
+                self._visual_pulse()
+                self._emit("computer", label)
+                time.sleep(0.35)
+                self._ensure_current_url_allowed()
+                self._install_visual_overlay()
+                return f"{action_type} at ({x:.0f}, {y:.0f}) on {target}"
+
+            if action_type == "move":
+                self._dispatch_mouse("mouseMoved", x, y, button="none")
+                self._emit("computer", label)
+                return f"Moved pointer to ({x:.0f}, {y:.0f})"
+
+            scroll_x = float(action.get("scroll_x") or 0)
+            scroll_y = float(action.get("scroll_y") or 0)
+            self.driver.execute_cdp_cmd(
+                "Input.dispatchMouseEvent",
+                {
+                    "type": "mouseWheel",
+                    "x": x,
+                    "y": y,
+                    "deltaX": scroll_x,
+                    "deltaY": scroll_y,
+                },
+            )
+            self._emit("computer", f"SCROLL — dx={scroll_x:.0f}, dy={scroll_y:.0f}")
+            time.sleep(0.25)
+            return f"Scrolled ({scroll_x:.0f}, {scroll_y:.0f})"
+
+        if action_type == "drag":
+            path = action.get("path") or []
+            if len(path) < 2:
+                raise ValueError("Computer drag requires at least two path points.")
+
+            scaled: list[tuple[float, float]] = []
+            for point in path:
+                if isinstance(point, dict):
+                    px, py = point.get("x"), point.get("y")
+                elif isinstance(point, (list, tuple)) and len(point) >= 2:
+                    px, py = point[0], point[1]
+                else:
+                    raise ValueError("Invalid Computer Use drag path point.")
+                scaled.append(self.scale_computer_point(float(px), float(py), observation))
+
+            start_x, start_y = scaled[0]
+            target = self._describe_point(start_x, start_y)
+            self._visual_point(start_x, start_y, f"DRAG — {target[:90]}", "#7CFFB2")
+            self.policy.ensure_click_allowed(target)
+            self._require_approval(
+                action="click",
+                label=f"ARRASTAR — {target[:90]}",
+                target=target,
+                value_preview=None,
+                secret=False,
+            )
+            self._dispatch_mouse("mouseMoved", start_x, start_y, button="none")
+            self._dispatch_mouse("mousePressed", start_x, start_y, button="left", click_count=1)
+            for px, py in scaled[1:]:
+                self._dispatch_mouse("mouseMoved", px, py, button="left")
+            end_x, end_y = scaled[-1]
+            self._dispatch_mouse("mouseReleased", end_x, end_y, button="left", click_count=1)
+            self._emit("computer", f"DRAG — {target[:90]}")
+            return f"Dragged from ({start_x:.0f}, {start_y:.0f}) to ({end_x:.0f}, {end_y:.0f})"
+
+        if action_type == "type":
+            text = str(action.get("text") or "")
+            active = self._describe_active_element()
+            secret = bool(active.get("secret"))
+            target = str(active.get("label") or "elemento focado")
+            self._visual_status(f"COMPUTER USE — ESCREVER EM {target[:60]}", "#77B9FF")
+            self._require_approval(
+                action="write",
+                label=f"ESCREVER — {target[:80]}",
+                target=target,
+                value_preview=None if secret else text[:120],
+                secret=secret,
+                value_length=len(text),
+            )
+
+            element = self.driver.switch_to.active_element
+            for character in text:
+                element.send_keys(character)
+                time.sleep(min(self.settings.visual_typing_delay_ms, 25) / 1000)
+            self._visual_pulse()
+            self._emit("computer", "TYPE — valor secreto" if secret else f"TYPE — {text[:80]}")
+            return f"Typed {len(text)} characters"
+
+        if action_type == "keypress":
+            keys = [str(key) for key in (action.get("keys") or [])]
+            if not keys:
+                raise ValueError("Computer keypress requires keys.")
+            self._visual_status(
+                "COMPUTER USE — TECLAS " + "+".join(keys)[:70],
+                "#77B9FF",
+            )
+            self._require_approval(
+                action="keypress",
+                label="TECLAS — " + "+".join(keys)[:80],
+                target=str(self._describe_active_element().get("label") or "elemento focado"),
+                value_preview="+".join(keys)[:120],
+                secret=False,
+            )
+            self._computer_keypress(keys)
+            self._emit("computer", "KEYPRESS — " + "+".join(keys)[:80])
+            time.sleep(0.2)
+            return "Pressed " + "+".join(keys)
+
+        raise ValueError(f"Unsupported Computer Use action: {action_type}")
+
+    def _describe_point(self, x: float, y: float) -> str:
+        result = self.driver.execute_script(
+            """
+            const el = document.elementFromPoint(arguments[0], arguments[1]);
+            if (!el) return {label:"sem elemento"};
+            const text = (el.innerText || el.value || el.getAttribute("aria-label") ||
+              el.getAttribute("title") || el.getAttribute("placeholder") || "").trim();
+            return {
+              tag: (el.tagName || "").toLowerCase(),
+              role: el.getAttribute("role") || "",
+              type: el.getAttribute("type") || "",
+              label: text.slice(0, 160)
+            };
+            """,
+            x,
+            y,
+        ) or {}
+        parts = [str(result.get("tag") or "elemento")]
+        if result.get("role"):
+            parts.append(f"role={result['role']}")
+        if result.get("label"):
+            parts.append(str(result["label"]))
+        return " | ".join(parts)[:220]
+
+    def _describe_active_element(self) -> dict[str, Any]:
+        return self.driver.execute_script(
+            """
+            const el = document.activeElement;
+            if (!el) return {label:"elemento focado", secret:false};
+            const type = (el.getAttribute("type") || "").toLowerCase();
+            const label = (
+              el.getAttribute("aria-label") ||
+              el.getAttribute("placeholder") ||
+              el.getAttribute("name") ||
+              el.id ||
+              el.tagName ||
+              "elemento focado"
+            );
+            return {label:String(label).slice(0,160), secret:type === "password"};
+            """
+        ) or {"label": "elemento focado", "secret": False}
+
+    def _visual_point(self, x: float, y: float, label: str, color: str) -> None:
+        try:
+            self._install_visual_overlay()
+            self.driver.execute_script(
+                "window.__mysanaQAVisual.point(arguments[0], arguments[1], arguments[2], arguments[3]);",
+                x,
+                y,
+                label,
+                color,
+            )
+            time.sleep(self.settings.visual_action_delay_ms / 1000)
+        except Exception:
+            pass
+
+    def _dispatch_mouse(
+        self,
+        event_type: str,
+        x: float,
+        y: float,
+        *,
+        button: str,
+        click_count: int = 0,
+    ) -> None:
+        button_map = {"left": "left", "right": "right", "wheel": "middle", "middle": "middle", "none": "none"}
+        normalized = button_map.get(button.lower())
+        if normalized is None:
+            raise ValueError(f"Unsupported mouse button: {button}")
+        payload = {
+            "type": event_type,
+            "x": x,
+            "y": y,
+            "button": normalized,
+        }
+        if click_count:
+            payload["clickCount"] = click_count
+        self.driver.execute_cdp_cmd("Input.dispatchMouseEvent", payload)
+
+    def _computer_click(
+        self,
+        x: float,
+        y: float,
+        *,
+        button: str = "left",
+        double: bool = False,
+    ) -> None:
+        count = 2 if double else 1
+        self._dispatch_mouse("mouseMoved", x, y, button="none")
+        self._dispatch_mouse("mousePressed", x, y, button=button, click_count=count)
+        self._dispatch_mouse("mouseReleased", x, y, button=button, click_count=count)
+
+    def _computer_keypress(self, keys: list[str]) -> None:
+        from selenium.webdriver.common.action_chains import ActionChains
+        from selenium.webdriver.common.keys import Keys
+
+        key_map = {
+            "ENTER": Keys.ENTER,
+            "RETURN": Keys.ENTER,
+            "ESC": Keys.ESCAPE,
+            "ESCAPE": Keys.ESCAPE,
+            "TAB": Keys.TAB,
+            "SPACE": Keys.SPACE,
+            "BACKSPACE": Keys.BACKSPACE,
+            "DELETE": Keys.DELETE,
+            "DEL": Keys.DELETE,
+            "HOME": Keys.HOME,
+            "END": Keys.END,
+            "PAGEUP": Keys.PAGE_UP,
+            "PAGEDOWN": Keys.PAGE_DOWN,
+            "UP": Keys.ARROW_UP,
+            "DOWN": Keys.ARROW_DOWN,
+            "LEFT": Keys.ARROW_LEFT,
+            "RIGHT": Keys.ARROW_RIGHT,
+            "ARROWUP": Keys.ARROW_UP,
+            "ARROWDOWN": Keys.ARROW_DOWN,
+            "ARROWLEFT": Keys.ARROW_LEFT,
+            "ARROWRIGHT": Keys.ARROW_RIGHT,
+            "CTRL": Keys.CONTROL,
+            "CONTROL": Keys.CONTROL,
+            "SHIFT": Keys.SHIFT,
+            "ALT": Keys.ALT,
+            "OPTION": Keys.ALT,
+            "META": Keys.META,
+            "CMD": Keys.META,
+            "COMMAND": Keys.META,
+        }
+        modifiers = {"CTRL", "CONTROL", "SHIFT", "ALT", "OPTION", "META", "CMD", "COMMAND"}
+        chain = ActionChains(self.driver)
+        pressed = []
+
+        for key in keys:
+            upper = key.upper()
+            normalized = key_map.get(upper, key)
+            if upper in modifiers:
+                chain.key_down(normalized)
+                pressed.append(normalized)
+            else:
+                chain.send_keys(normalized)
+
+        for modifier in reversed(pressed):
+            chain.key_up(modifier)
+        chain.perform()
 
     def detect_login_form(self) -> dict[str, Any]:
         self._require_driver()
