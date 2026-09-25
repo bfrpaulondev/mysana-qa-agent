@@ -166,35 +166,57 @@ class BrowserSession:
     def start(self) -> None:
         try:
             from selenium import webdriver
+            from selenium.common.exceptions import SessionNotCreatedException, WebDriverException
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError("Selenium is not installed. Run: pip install -r requirements.txt") from exc
 
-        options = webdriver.ChromeOptions()
         binary, label = self._resolve_chromium_binary()
-        if binary:
-            options.binary_location = binary
-            self.browser_label = label
-        else:
-            self.browser_label = "Chrome (Chromium)"
+        self.browser_label = label if binary else "Chrome (Chromium)"
 
-        options.add_argument(f"--user-data-dir={self.settings.chrome_profile_dir}")
-        options.add_argument("--start-maximized")
-        options.add_argument("--disable-notifications")
-        options.add_argument("--disable-search-engine-choice-screen")
-        options.add_experimental_option(
-            "prefs",
-            {
-                "credentials_enable_service": False,
-                "profile.password_manager_enabled": False,
-            },
+        errors: list[str] = []
+        for profile_dir in self._profile_candidates():
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            options = self._build_chrome_options(webdriver, profile_dir, binary)
+
+            self._emit(
+                "browser",
+                f"A abrir {self.browser_label} com perfil QA: {profile_dir}",
+            )
+            try:
+                self.driver = webdriver.Chrome(options=options)
+                self.driver.set_page_load_timeout(60)
+                self._remember_working_profile(profile_dir)
+                self._emit(
+                    "browser",
+                    f"{self.browser_label} aberto e controlado pelo agente",
+                )
+                return
+            except (SessionNotCreatedException, WebDriverException) as exc:
+                message = f"{type(exc).__name__}: {exc}"
+                errors.append(message)
+                self.driver = None
+                self._emit(
+                    "browser",
+                    f"Falha ao abrir perfil {profile_dir.name}; a tentar perfil de recuperação",
+                )
+
+                text = str(exc).lower()
+                recoverable = (
+                    "devtoolsactiveport" in text
+                    or "chrome failed to start" in text
+                    or "session not created" in text
+                    or "user data directory is already in use" in text
+                )
+                if not recoverable:
+                    break
+
+        detail = " | ".join(errors[-3:])
+        raise RuntimeError(
+            "Não foi possível iniciar o Chromium controlado. "
+            "O agente tentou o perfil principal e perfis de recuperação. "
+            "Fecha apenas janelas antigas do MySANA QA Agent, reinicia o dashboard e tenta novamente. "
+            f"Detalhe: {detail}"
         )
-        if self.settings.headless:
-            options.add_argument("--headless=new")
-
-        self._emit("browser", f"A abrir {self.browser_label}")
-        self.driver = webdriver.Chrome(options=options)
-        self.driver.set_page_load_timeout(60)
-        self._emit("browser", f"{self.browser_label} aberto e controlado pelo agente")
 
     def close(self) -> None:
         if self.driver is not None:
@@ -708,6 +730,71 @@ class BrowserSession:
         return WebDriverWait(self.driver, self.settings.action_timeout_seconds).until(
             EC.presence_of_element_located((by, value))
         )
+
+    def _build_chrome_options(self, webdriver, profile_dir: Path, binary: str | None):
+        options = webdriver.ChromeOptions()
+        if binary:
+            options.binary_location = binary
+
+        options.add_argument(f"--user-data-dir={profile_dir}")
+        options.add_argument("--profile-directory=Default")
+        options.add_argument("--remote-debugging-port=0")
+        options.add_argument("--start-maximized")
+        options.add_argument("--disable-notifications")
+        options.add_argument("--disable-search-engine-choice-screen")
+        options.add_argument("--no-first-run")
+        options.add_argument("--no-default-browser-check")
+        options.add_argument("--disable-background-mode")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-component-update")
+        options.add_experimental_option(
+            "prefs",
+            {
+                "credentials_enable_service": False,
+                "profile.password_manager_enabled": False,
+            },
+        )
+        if self.settings.headless:
+            options.add_argument("--headless=new")
+        return options
+
+    def _profile_candidates(self) -> list[Path]:
+        base = self.settings.chrome_profile_dir
+        pointer = base.parent / "active-profile.txt"
+        candidates: list[Path] = []
+
+        try:
+            if pointer.exists():
+                saved = Path(pointer.read_text(encoding="utf-8").strip())
+                if saved:
+                    candidates.append(saved)
+        except Exception:
+            pass
+
+        candidates.extend(
+            [
+                base,
+                base.parent / f"{base.name}-recovery-1",
+                base.parent / f"{base.name}-recovery-2",
+            ]
+        )
+
+        unique: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = str(candidate).lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(candidate)
+        return unique
+
+    def _remember_working_profile(self, profile_dir: Path) -> None:
+        try:
+            pointer = self.settings.chrome_profile_dir.parent / "active-profile.txt"
+            pointer.parent.mkdir(parents=True, exist_ok=True)
+            pointer.write_text(str(profile_dir), encoding="utf-8")
+        except Exception:
+            pass
 
     def _resolve_chromium_binary(self) -> tuple[str | None, str]:
         if self.settings.chromium_binary:
