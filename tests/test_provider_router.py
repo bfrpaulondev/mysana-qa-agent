@@ -62,6 +62,28 @@ class ProviderRouterTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "paid fallback disabled")
 
+    def test_vision_completion_uses_configured_nvidia_model(self):
+        fake_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"action":"done"}'))]
+        )
+        settings = Settings(vision_model="nvidia_nim/z-ai/glm-5.3-flash")
+        with patch.dict(
+            os.environ,
+            {"NVIDIA_NIM_API_KEY": "test-nvidia-secret"},
+            clear=True,
+        ):
+            router = ProviderRouter(settings)
+            with patch.object(router, "_litellm_completion", return_value=fake_response) as mocked:
+                result = router.vision_completion("inspect", "ZmFrZS1pbWFnZQ==")
+
+        self.assertEqual(result.model, "nvidia_nim/z-ai/glm-5.3-flash")
+        self.assertEqual(result.content, '{"action":"done"}')
+        call = mocked.call_args.kwargs
+        self.assertEqual(call["model"], "nvidia_nim/z-ai/glm-5.3-flash")
+        serialized = repr(call["messages"])
+        self.assertIn("data:image/png;base64,ZmFrZS1pbWFnZQ==", serialized)
+        self.assertNotIn("test-nvidia-secret", serialized)
+
     def test_probe_returns_success_without_exposing_key(self):
         fake_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))]
