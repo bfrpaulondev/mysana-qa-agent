@@ -19,7 +19,7 @@ from qa.reporter import RunReport, StepResult
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-DASHBOARD_VERSION = "0.8.0-live-steering"
+DASHBOARD_VERSION = "0.9.0-openai-primary"
 
 
 class LoginPayload(BaseModel):
@@ -508,7 +508,8 @@ class DashboardRuntime:
         configured = self.provider.provider_status()
         rows: list[dict[str, Any]] = []
 
-        for model in self.settings.llm_models:
+        for index, model in enumerate(self.settings.llm_models):
+            is_primary = index == 0
             if model.startswith("groq/"):
                 name = "Groq"
                 is_configured = configured["Groq"]
@@ -520,7 +521,9 @@ class DashboardRuntime:
             elif model.startswith("openai/"):
                 name = "OpenAI"
                 is_configured = configured["OpenAI"]
-                enabled = is_configured and self.settings.enable_paid_fallback
+                enabled = is_configured and (
+                    is_primary or self.settings.enable_paid_fallback
+                )
             else:
                 name = model.split("/", 1)[0]
                 is_configured = True
@@ -537,6 +540,8 @@ class DashboardRuntime:
                     "configured": is_configured,
                     "enabled": enabled,
                     "paid": model.startswith("openai/"),
+                    "role": "primary" if is_primary else "fallback",
+                    "vision": model == self.settings.vision_model,
                     "latency_ms": last.get("latency_ms") if last else None,
                     "last_ok": last.get("ok") if last else None,
                 }
@@ -699,12 +704,9 @@ class DashboardRuntime:
         self._add_activity("session", "Sessão Chromium fechada")
         return self.session_status()
 
-    def test_free_providers(self) -> list[dict[str, Any]]:
+    def test_enabled_providers(self) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for model in self.settings.llm_models:
-            if model.startswith("openai/"):
-                continue
-
             self._add_activity("provider", f"A testar {model}")
             probe = self.provider.probe_model(model)
             results.append(
@@ -871,7 +873,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/providers/test")
     def api_test_providers() -> dict[str, Any]:
-        return {"results": runtime.test_free_providers()}
+        return {"results": runtime.test_enabled_providers()}
 
     @app.post("/api/session/open")
     def api_open_session() -> dict[str, Any]:
