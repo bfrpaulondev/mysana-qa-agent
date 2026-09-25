@@ -28,6 +28,8 @@ def cmd_doctor(settings: Settings) -> int:
     print(f"Allowed hosts: {', '.join(settings.allowed_hosts)}")
     print(f"Headless: {settings.headless}")
     print(f"Paid fallback enabled: {settings.enable_paid_fallback}")
+    print(f"Vision model: {settings.vision_model}")
+    print(f"Primary text model: {settings.llm_models[0] if settings.llm_models else 'none'}")
     print(f"LLM call budget: {settings.max_llm_calls_per_task}")
     print(f"Model chain: {' -> '.join(settings.llm_models)}")
     print(
@@ -44,13 +46,13 @@ def cmd_doctor(settings: Settings) -> int:
 
 def cmd_providers_test(settings: Settings) -> int:
     provider = ProviderRouter(settings)
-    free_models = [model for model in settings.llm_models if not model.startswith("openai/")]
+    models = list(settings.llm_models)
 
     print("Provider connectivity test")
-    print("One minimal request is sent to each configured free provider.")
+    print("One minimal request is sent to each configured provider in routing order.")
 
     failed = False
-    for model in free_models:
+    for model in models:
         probe = provider.probe_model(model)
         if probe.ok:
             print(
