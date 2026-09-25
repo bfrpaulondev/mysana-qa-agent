@@ -833,3 +833,61 @@ h2 {
     width: 100%;
   }
 }
+
+
+.button-always {
+  border: 1px solid rgba(141, 184, 255, .34);
+  background: rgba(141, 184, 255, .12);
+  color: var(--blue);
+}
+
+.approval-rules-panel {
+  margin-bottom: 20px;
+  border-color: rgba(141, 184, 255, .3);
+}
+
+.approval-rules-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.approval-rule-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 14px;
+  border: 1px solid rgba(141, 184, 255, .24);
+  border-radius: 14px;
+  background: rgba(141, 184, 255, .055);
+}
+
+.approval-rule-chip > div {
+  display: grid;
+  gap: 5px;
+}
+
+.approval-rule-chip strong {
+  color: var(--blue);
+}
+
+.approval-rule-chip span {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.approval-rule-disable {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .approval-rule-chip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .approval-rule-disable {
+    width: 100%;
+  }
+}
