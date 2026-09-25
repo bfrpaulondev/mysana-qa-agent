@@ -37,8 +37,11 @@ class Settings:
     base_url: str = "https://mysana.sanahotels.com"
     allowed_hosts: tuple[str, ...] = ("mysana.sanahotels.com",)
     headless: bool = False
+    chromium_binary: str | None = None
     chrome_profile_dir: Path = field(default_factory=lambda: ROOT_DIR / "runtime" / "chrome-profile")
     evidence_dir: Path = field(default_factory=lambda: ROOT_DIR / "runtime" / "evidence")
+    visual_action_delay_ms: int = 500
+    visual_typing_delay_ms: int = 55
     llm_models: tuple[str, ...] = (
         "groq/openai/gpt-oss-120b",
         "nvidia_nim/z-ai/glm-5.3",
@@ -61,12 +64,15 @@ class Settings:
             base_url=os.getenv("MYSANA_BASE_URL", "https://mysana.sanahotels.com").rstrip("/"),
             allowed_hosts=_env_list("QA_ALLOWED_HOSTS", "mysana.sanahotels.com"),
             headless=_env_bool("QA_HEADLESS", False),
+            chromium_binary=os.getenv("QA_CHROMIUM_BINARY", "").strip() or None,
             chrome_profile_dir=Path(
                 os.getenv("QA_CHROME_PROFILE_DIR", str(ROOT_DIR / "runtime" / "chrome-profile"))
             ).expanduser().resolve(),
             evidence_dir=Path(
                 os.getenv("QA_EVIDENCE_DIR", str(ROOT_DIR / "runtime" / "evidence"))
             ).expanduser().resolve(),
+            visual_action_delay_ms=_env_int("QA_VISUAL_ACTION_DELAY_MS", 500),
+            visual_typing_delay_ms=_env_int("QA_VISUAL_TYPING_DELAY_MS", 55),
             llm_models=_env_list(
                 "QA_LLM_MODELS",
                 "groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3,openai/gpt-5.6-luna",
