@@ -68,6 +68,28 @@ def cmd_providers_test(settings: Settings) -> int:
     return 1 if failed else 0
 
 
+def cmd_dashboard(settings: Settings, port: int) -> int:
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from dashboard.server import create_app
+
+    url = f"http://127.0.0.1:{port}"
+    print(f"MySANA QA Dashboard: {url}")
+    print("O dashboard é servido apenas em localhost.")
+
+    threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    uvicorn.run(
+        create_app(settings),
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+    )
+    return 0
+
+
 def cmd_login(settings: Settings) -> int:
     browser = BrowserSession(settings)
     browser.start()
@@ -127,6 +149,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("doctor", help="Validate local configuration and provider keys")
     sub.add_parser("providers-test", help="Test Groq and NVIDIA NIM with one minimal call each")
+
+    dashboard = sub.add_parser("dashboard", help="Open the local visual dashboard")
+    dashboard.add_argument("--port", type=int, default=8765)
+
     sub.add_parser("login", help="Open the persistent Chrome profile for manual login")
 
     inspect = sub.add_parser("inspect", help="Inspect visible interactive elements on the current page")
@@ -150,6 +176,8 @@ def main() -> int:
         return cmd_doctor(settings)
     if args.command == "providers-test":
         return cmd_providers_test(settings)
+    if args.command == "dashboard":
+        return cmd_dashboard(settings, args.port)
     if args.command == "login":
         return cmd_login(settings)
     if args.command == "inspect":
