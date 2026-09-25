@@ -28,6 +28,57 @@ Por defeito:
 Se Groq falhar ou atingir quota, o router tenta NVIDIA. A OpenAI nunca é usada automaticamente
 enquanto o fallback pago estiver desactivado.
 
+## Configurar Groq + NVIDIA NIM sem expor chaves
+
+Nunca edites `.env.example` com uma chave real.
+
+Cria o teu ficheiro local:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Depois abre **apenas** o ficheiro `.env` e substitui:
+
+```env
+GROQ_API_KEY=YOUR_GROQ_API_KEY_HERE
+NVIDIA_NIM_API_KEY=YOUR_NVIDIA_NIM_API_KEY_HERE
+NVIDIA_NIM_API_BASE=https://integrate.api.nvidia.com/v1
+```
+
+pelas tuas chaves reais, por exemplo:
+
+```env
+GROQ_API_KEY=<coloca-aqui-a-chave-real-localmente>
+NVIDIA_NIM_API_KEY=<coloca-aqui-a-chave-real-localmente>
+NVIDIA_NIM_API_BASE=https://integrate.api.nvidia.com/v1
+```
+
+O ficheiro `.env` e variantes como `.env.local` estão no `.gitignore`.
+
+Valida sem mostrar os segredos:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main doctor
+```
+
+Resultado esperado:
+
+```text
+Groq: configured
+NVIDIA NIM: configured
+OpenAI: missing
+Secrets: hidden (doctor never prints API keys)
+```
+
+Enquanto:
+
+```env
+QA_ENABLE_PAID_FALLBACK=false
+```
+
+estiver definido, a OpenAI é ignorada mesmo que exista uma chave local.
+
 ## Instalação no Windows
 
 Requisitos:
@@ -42,7 +93,7 @@ PowerShell:
 .\scripts\setup.ps1
 ```
 
-Edita `.env` e adiciona as chaves que tiveres.
+O script cria `.env` a partir de `.env.example` apenas se `.env` ainda não existir.
 
 Depois:
 
