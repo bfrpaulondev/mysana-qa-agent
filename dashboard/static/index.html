@@ -88,7 +88,7 @@
         </form>
 
         <p class="hint">
-          O plano usa a screenshot e os elementos reais da página actual. Durante a execução, o agente volta a observar após cada passo.
+          O plano é uma pré-visualização. A execução usa OpenAI Computer Use nativo, que recebe a screenshot actual e volta a observar após as acções.
         </p>
       </article>
     </section>
@@ -99,7 +99,10 @@
           <p class="eyebrow">Plano proposto</p>
           <h2 id="planSummary">—</h2>
         </div>
-        <span id="planModelBadge" class="badge badge-neutral">modelo —</span>
+        <div class="plan-badges">
+          <span id="planModelBadge" class="badge badge-neutral">planner —</span>
+          <span id="computerEngineBadge" class="badge badge-pass">execução —</span>
+        </div>
       </div>
 
       <ol id="planSteps" class="plan-steps"></ol>
