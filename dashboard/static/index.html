@@ -10,9 +10,9 @@
   <main class="shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">Local QA Control Center</p>
+        <p class="eyebrow">Visual Computer Use</p>
         <h1>MySANA QA Agent</h1>
-        <p class="subtitle">Providers, sessão MySANA e testes seguros num único painel.</p>
+        <p class="subtitle">Vê o Chromium navegar, mover o cursor, escrever e executar cada passo.</p>
       </div>
       <div class="top-status">
         <span id="safetyBadge" class="badge badge-safe">Modo seguro</span>
@@ -35,53 +35,67 @@
       <article class="panel session-panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Browser controlado</p>
-            <h2>Sessão MySANA</h2>
+            <p class="eyebrow">Browser visível</p>
+            <h2>Sessão Chromium / MySANA</h2>
           </div>
           <span id="sessionBadge" class="badge badge-neutral">Fechada</span>
         </div>
 
         <div class="session-body">
-          <div class="session-icon" aria-hidden="true">M</div>
+          <div class="session-icon" aria-hidden="true">C</div>
           <div class="session-copy">
-            <strong id="sessionTitle">Chrome QA ainda não foi aberto</strong>
+            <strong id="sessionTitle">Chromium QA ainda não foi aberto</strong>
             <span id="sessionUrl" class="muted">mysana.sanahotels.com</span>
+            <span id="browserName" class="browser-name">Chromium</span>
           </div>
         </div>
 
         <div class="button-row">
-          <button id="openSessionButton" class="button button-primary">Abrir MySANA</button>
+          <button id="openSessionButton" class="button button-primary">Abrir Chromium e ir ao MySANA</button>
           <button id="closeSessionButton" class="button button-ghost">Fechar sessão</button>
         </div>
 
         <p class="hint">
-          O login é feito manualmente no Chrome separado do agente. Passwords e cookies não passam pela interface.
+          O agente abre uma janela Chromium visível. Cada alvo recebe uma borda forte e um cursor virtual mostra onde o agente vai actuar.
         </p>
       </article>
 
       <article class="panel test-panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Primeiro workflow</p>
-            <h2>Teste read-only</h2>
+            <p class="eyebrow">Teste visual</p>
+            <h2>Inspecção Computer Use</h2>
           </div>
-          <span class="badge badge-safe">Sem alterações</span>
+          <span class="badge badge-safe">Read-only</span>
         </div>
 
         <p class="test-description">
-          Analisa a página actualmente aberta, conta os elementos interactivos, guarda screenshot e gera relatório.
-          Não clica, não preenche e não grava.
+          O cursor percorre elementos visíveis no Chromium, destaca cada alvo com uma borda clara, guarda screenshot e gera relatório.
+          Nesta fase não clica nem altera dados.
         </p>
 
         <div class="guard-list">
-          <div><span class="guard-dot"></span> Não apagar</div>
-          <div><span class="guard-dot"></span> Não aprovar</div>
-          <div><span class="guard-dot"></span> Não preencher</div>
-          <div><span class="guard-dot"></span> Capturar evidência</div>
+          <div><span class="guard-dot"></span> Cursor visível</div>
+          <div><span class="guard-dot"></span> Borda no alvo</div>
+          <div><span class="guard-dot"></span> Feed em tempo real</div>
+          <div><span class="guard-dot"></span> Sem gravação</div>
         </div>
 
-        <button id="startTestButton" class="button button-run" disabled>Iniciar teste</button>
+        <button id="startTestButton" class="button button-run" disabled>Iniciar teste visual</button>
       </article>
+    </section>
+
+    <section class="panel activity-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Live</p>
+          <h2>Acções do agente</h2>
+        </div>
+        <span id="activityBadge" class="badge badge-neutral">Em espera</span>
+      </div>
+      <div id="activityFeed" class="activity-feed">
+        <div class="empty-activity">As acções aparecerão aqui enquanto vês o Chromium a trabalhar.</div>
+      </div>
     </section>
 
     <section class="panel execution-panel">
@@ -94,7 +108,7 @@
       </div>
 
       <div id="emptyExecution" class="empty-state">
-        Abre o MySANA e inicia o primeiro teste read-only.
+        Abre o Chromium, conclui o login e inicia o primeiro teste visual.
       </div>
 
       <div id="testResult" class="result-grid hidden">
@@ -106,12 +120,52 @@
           <span class="metric-label">Elementos interactivos</span>
           <strong id="resultElements">—</strong>
         </div>
+        <div class="metric">
+          <span class="metric-label">Destacados visualmente</span>
+          <strong id="resultInspected">—</strong>
+        </div>
         <div class="metric metric-wide">
           <span class="metric-label">Relatório local</span>
           <strong id="resultReport">—</strong>
         </div>
       </div>
     </section>
+
+    <div id="loginModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Intervenção necessária</p>
+            <h2>Login MySANA</h2>
+          </div>
+          <span class="badge badge-warn">Local</span>
+        </div>
+
+        <p class="modal-copy">
+          O agente detectou o formulário de login no Chromium. Introduz as credenciais aqui e observa o agente escrever nos campos.
+          Os valores não são gravados em ficheiros, relatórios ou GitHub.
+        </p>
+
+        <form id="loginForm" autocomplete="off">
+          <label class="field">
+            <span>Utilizador</span>
+            <input id="loginUsername" name="username" type="text" autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span>Password</span>
+            <input id="loginPassword" name="password" type="password" autocomplete="new-password" required>
+          </label>
+
+          <div class="modal-actions">
+            <button id="loginSubmitButton" class="button button-primary" type="submit">Escrever no Chromium e entrar</button>
+            <button id="loginCancelButton" class="button button-ghost" type="button">Digitar manualmente no Chromium</button>
+          </div>
+        </form>
+
+        <p class="hint">Se preferires, podes ignorar este modal e escrever directamente na janela Chromium.</p>
+      </div>
+    </div>
 
     <div id="toast" class="toast hidden" role="status"></div>
   </main>
