@@ -22,10 +22,10 @@ pensada especificamente para correr num PC normal sem LLM local pesado.
 Por defeito:
 
 1. `groq/openai/gpt-oss-120b`
-2. `nvidia_nim/openai/gpt-oss-120b`
+2. `nvidia_nim/z-ai/glm-5.3`
 3. `openai/gpt-5.6-luna` — apenas se `QA_ENABLE_PAID_FALLBACK=true`
 
-Se Groq falhar ou atingir quota, o router tenta NVIDIA. A OpenAI nunca é usada automaticamente
+Se Groq falhar ou atingir quota, o router tenta NVIDIA GLM-5.3. A OpenAI nunca é usada automaticamente
 enquanto o fallback pago estiver desactivado.
 
 ## Configurar Groq + NVIDIA NIM sem expor chaves
@@ -46,11 +46,11 @@ NVIDIA_NIM_API_KEY=YOUR_NVIDIA_NIM_API_KEY_HERE
 NVIDIA_NIM_API_BASE=https://integrate.api.nvidia.com/v1
 ```
 
-pelas tuas chaves reais, por exemplo:
+pelas tuas chaves novas/reais localmente:
 
 ```env
-GROQ_API_KEY=<coloca-aqui-a-chave-real-localmente>
-NVIDIA_NIM_API_KEY=<coloca-aqui-a-chave-real-localmente>
+GROQ_API_KEY=<chave-local>
+NVIDIA_NIM_API_KEY=<chave-local>
 NVIDIA_NIM_API_BASE=https://integrate.api.nvidia.com/v1
 ```
 
@@ -70,6 +70,24 @@ NVIDIA NIM: configured
 OpenAI: missing
 Secrets: hidden (doctor never prints API keys)
 ```
+
+Depois testa realmente os dois providers com uma chamada mínima a cada um:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main providers-test
+```
+
+Exemplo:
+
+```text
+Provider connectivity test
+One minimal request is sent to each configured free provider.
+PASS | groq/openai/gpt-oss-120b | 420 ms | response='OK'
+PASS | nvidia_nim/z-ai/glm-5.3 | 1250 ms | response='OK'
+Secrets: hidden
+```
+
+O comando nunca imprime as API keys. Os tempos acima são apenas ilustrativos.
 
 Enquanto:
 
@@ -170,7 +188,7 @@ Se o login do MySANA redireccionar para um domínio SSO diferente, adiciona-o ex
 QA_ALLOWED_HOSTS=mysana.sanahotels.com,login.exemplo.pt
 ```
 
-Não coloques cookies, passwords, screenshots de produção ou dados pessoais no GitHub.
+Não coloques cookies, passwords, screenshots de produção, API keys ou dados pessoais no GitHub.
 
 ## Próximo passo
 
