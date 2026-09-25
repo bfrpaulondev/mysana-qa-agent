@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,9 @@ class DashboardRuntime:
         self.provider = ProviderRouter(settings)
         self.browser: BrowserSession | None = None
         self.lock = threading.RLock()
+        self.approval_condition = threading.Condition(self.lock)
+        self.pending_approval: dict[str, Any] | None = None
+        self.approval_results: dict[str, bool] = {}
         self.last_provider_tests: list[dict[str, Any]] = []
         self.last_test: dict[str, Any] | None = None
         self.activity: list[dict[str, Any]] = []
@@ -52,6 +56,78 @@ class DashboardRuntime:
                 "timestamp": time.time(),
             }
         )
+
+    def request_approval(self, request: dict[str, Any]) -> bool:
+        approval_id = uuid.uuid4().hex
+        created_at = time.time()
+        pending = {
+            "id": approval_id,
+            "action": str(request.get("action") or "action"),
+            "label": str(request.get("label") or "Acção pendente"),
+            "target": str(request.get("target") or ""),
+            "secret": bool(request.get("secret")),
+            "value_preview": None if request.get("secret") else request.get("value_preview"),
+            "value_length": request.get("value_length"),
+            "url": str(request.get("url") or ""),
+            "title": str(request.get("title") or ""),
+            "created_at": created_at,
+            "timeout_seconds": self.settings.approval_timeout_seconds,
+        }
+
+        with self.approval_condition:
+            if self.pending_approval is not None:
+                raise RuntimeError("Já existe uma acção à espera de aprovação.")
+
+            self.pending_approval = pending
+            self._add_activity(
+                "approval",
+                f"A aguardar aprovação: {pending['label']}",
+            )
+
+            deadline = time.monotonic() + self.settings.approval_timeout_seconds
+            while approval_id not in self.approval_results:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    if self.pending_approval and self.pending_approval["id"] == approval_id:
+                        self.pending_approval = None
+                    self._add_activity("approval", "Tempo de aprovação expirou — acção rejeitada")
+                    return False
+                self.approval_condition.wait(timeout=remaining)
+
+            approved = self.approval_results.pop(approval_id)
+            if self.pending_approval and self.pending_approval["id"] == approval_id:
+                self.pending_approval = None
+
+            self._add_activity(
+                "approval",
+                "Acção aprovada pelo utilizador" if approved else "Acção rejeitada pelo utilizador",
+            )
+            return approved
+
+    def resolve_approval(self, approval_id: str, approved: bool) -> dict[str, Any]:
+        with self.approval_condition:
+            pending = self.pending_approval
+            if pending is None or pending.get("id") != approval_id:
+                raise RuntimeError("Esta aprovação já não está pendente.")
+
+            self.approval_results[approval_id] = approved
+            self.pending_approval = None
+            self.approval_condition.notify_all()
+
+        return {
+            "id": approval_id,
+            "approved": approved,
+        }
+
+    def _reject_pending_approval(self) -> None:
+        with self.approval_condition:
+            pending = self.pending_approval
+            if pending is None:
+                return
+            approval_id = str(pending["id"])
+            self.approval_results[approval_id] = False
+            self.pending_approval = None
+            self.approval_condition.notify_all()
 
     def provider_status(self) -> list[dict[str, Any]]:
         configured = self.provider.provider_status()
@@ -162,6 +238,7 @@ class DashboardRuntime:
             self.browser = BrowserSession(
                 self.settings,
                 event_callback=self._on_browser_event,
+                approval_callback=self.request_approval,
             )
             browser = self.browser
 
@@ -206,6 +283,7 @@ class DashboardRuntime:
         }
 
     def close_session(self) -> dict[str, Any]:
+        self._reject_pending_approval()
         with self.lock:
             browser = self.browser
             self.browser = None
@@ -343,6 +421,7 @@ class DashboardRuntime:
             "last_test": self.last_test,
             "test_running": self.test_running,
             "activity": list(self.activity[-40:]),
+            "pending_approval": dict(self.pending_approval) if self.pending_approval else None,
             "paid_fallback_enabled": self.settings.enable_paid_fallback,
             "safe_mode": not self.settings.allow_dangerous_actions,
         }
@@ -354,7 +433,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="MySANA QA Agent",
-        version="0.3.0",
+        version="0.4.0",
         docs_url=None,
         redoc_url=None,
     )
@@ -387,6 +466,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return runtime.submit_login(payload.username, payload.password)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.post("/api/approvals/{approval_id}/approve")
+    def api_approve_action(approval_id: str) -> dict[str, Any]:
+        try:
+            return runtime.resolve_approval(approval_id, True)
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.post("/api/approvals/{approval_id}/reject")
+    def api_reject_action(approval_id: str) -> dict[str, Any]:
+        try:
+            return runtime.resolve_approval(approval_id, False)
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail=f"{type(exc).__name__}: {exc}") from exc
 
     @app.post("/api/session/close")
     def api_close_session() -> dict[str, Any]:
