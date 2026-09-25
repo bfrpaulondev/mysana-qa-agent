@@ -51,11 +51,11 @@ class Settings:
     visual_action_delay_ms: int = 500
     visual_typing_delay_ms: int = 55
     approval_timeout_seconds: int = 600
-    vision_model: str = "nvidia_nim/z-ai/glm-5.3-flash"
+    vision_model: str = "openai/gpt-5.6-luna"
     llm_models: tuple[str, ...] = (
+        "openai/gpt-5.6-luna",
         "groq/openai/gpt-oss-120b",
         "nvidia_nim/z-ai/glm-5.3",
-        "openai/gpt-5.6-luna",
     )
     max_llm_calls_per_task: int = 8
     max_agent_steps: int = 10
@@ -87,11 +87,11 @@ class Settings:
             approval_timeout_seconds=_env_int("QA_APPROVAL_TIMEOUT_SECONDS", 600),
             vision_model=os.getenv(
                 "QA_VISION_MODEL",
-                "nvidia_nim/z-ai/glm-5.3-flash",
-            ).strip() or "nvidia_nim/z-ai/glm-5.3-flash",
+                "openai/gpt-5.6-luna",
+            ).strip() or "openai/gpt-5.6-luna",
             llm_models=_env_list(
                 "QA_LLM_MODELS",
-                "groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3,openai/gpt-5.6-luna",
+                "openai/gpt-5.6-luna,groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3",
             ),
             max_llm_calls_per_task=_env_int("QA_MAX_LLM_CALLS_PER_TASK", 8),
             max_agent_steps=_env_int("QA_MAX_AGENT_STEPS", 10),
