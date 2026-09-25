@@ -42,6 +42,7 @@ class Settings:
     evidence_dir: Path = field(default_factory=lambda: ROOT_DIR / "runtime" / "evidence")
     visual_action_delay_ms: int = 500
     visual_typing_delay_ms: int = 55
+    approval_timeout_seconds: int = 600
     llm_models: tuple[str, ...] = (
         "groq/openai/gpt-oss-120b",
         "nvidia_nim/z-ai/glm-5.3",
@@ -73,6 +74,7 @@ class Settings:
             ).expanduser().resolve(),
             visual_action_delay_ms=_env_int("QA_VISUAL_ACTION_DELAY_MS", 500),
             visual_typing_delay_ms=_env_int("QA_VISUAL_TYPING_DELAY_MS", 55),
+            approval_timeout_seconds=_env_int("QA_APPROVAL_TIMEOUT_SECONDS", 600),
             llm_models=_env_list(
                 "QA_LLM_MODELS",
                 "groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3,openai/gpt-5.6-luna",
