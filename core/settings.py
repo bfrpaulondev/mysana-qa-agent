@@ -76,7 +76,7 @@ class Settings:
             headless=_env_bool("QA_HEADLESS", False),
             chromium_binary=os.getenv("QA_CHROMIUM_BINARY", "").strip() or None,
             chrome_profile_dir=Path(
-                os.getenv("QA_CHROME_PROFILE_DIR", str(default_profile))
+                os.getenv("QA_CHROME_PROFILE_DIR", "").strip() or str(default_profile)
             ).expanduser().resolve(),
             evidence_dir=Path(
                 os.getenv("QA_EVIDENCE_DIR", str(ROOT_DIR / "runtime" / "evidence"))
