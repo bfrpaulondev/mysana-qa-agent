@@ -15,11 +15,12 @@ from browser.session import BrowserSession
 from core.provider_router import ProviderRouter
 from core.settings import Settings
 from qa.agent_runner import AgentRunner
+from qa.openai_computer_runner import OpenAIComputerRunner
 from qa.reporter import RunReport, StepResult
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-DASHBOARD_VERSION = "0.9.0-openai-primary"
+DASHBOARD_VERSION = "1.0.0-native-computer"
 
 
 class LoginPayload(BaseModel):
@@ -332,6 +333,32 @@ class DashboardRuntime:
             control_callback=self._consume_agent_control,
         )
 
+    def _execution_runner(self):
+        with self.lock:
+            browser = self.browser
+        if browser is None or browser.driver is None:
+            raise RuntimeError("Abre primeiro a sessão Chromium/MySANA.")
+
+        openai_ready = self.provider.provider_status().get("OpenAI", False)
+        if self.settings.use_native_computer and openai_ready:
+            self._add_activity(
+                "computer",
+                f"Motor de execução: OpenAI Computer Use nativo ({self.settings.computer_model})",
+            )
+            return OpenAIComputerRunner(
+                browser=browser,
+                settings=self.settings,
+                event_callback=self._add_activity,
+                state_callback=self._update_agent_state,
+                control_callback=self._consume_agent_control,
+            )
+
+        self._add_activity(
+            "agent",
+            "Computer Use nativo indisponível; a usar o agente DOM/vision de fallback.",
+        )
+        return self._agent_runner()
+
     def plan_agent_command(self, command: str) -> dict[str, Any]:
         command = command.strip()
         if not command:
@@ -394,7 +421,7 @@ class DashboardRuntime:
     def _run_agent_worker(self, goal: str) -> None:
         self._add_activity("agent", f"A iniciar execução autónoma: {goal[:240]}")
         try:
-            runner = self._agent_runner()
+            runner = self._execution_runner()
             report = runner.run(goal, report_name="dashboard-agent")
             final_status = report.steps[-1].status if report.steps else "PASS"
             result = {
@@ -459,7 +486,7 @@ class DashboardRuntime:
 
     def _run_login_recovery_worker(self, goal: str) -> None:
         try:
-            runner = self._agent_runner()
+            runner = self._execution_runner()
             report = runner.run(goal, report_name="login-recovery")
             with self.lock:
                 browser = self.browser
@@ -835,6 +862,11 @@ class DashboardRuntime:
             "agent_state": dict(self.agent_state),
             "steering_queue_size": len(self.steering_messages),
             "paid_fallback_enabled": self.settings.enable_paid_fallback,
+            "computer_use": {
+                "enabled": self.settings.use_native_computer,
+                "model": self.settings.computer_model,
+                "reasoning_effort": self.settings.computer_reasoning_effort,
+            },
             "safe_mode": not self.settings.allow_dangerous_actions,
         }
 
