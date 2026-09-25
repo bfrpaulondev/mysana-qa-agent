@@ -1,5 +1,6 @@
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from core.provider_router import ProviderRouter
@@ -51,9 +52,28 @@ class ProviderRouterTests(unittest.TestCase):
             clear=True,
         ):
             router = ProviderRouter(self.settings)
-            kwargs = router._provider_kwargs("nvidia_nim/openai/gpt-oss-120b")
+            kwargs = router._provider_kwargs("nvidia_nim/z-ai/glm-5.3")
             self.assertEqual(kwargs["api_base"], "https://example.invalid/v1")
             self.assertEqual(kwargs["api_key"], "test-nvidia-secret")
+
+    def test_probe_skips_paid_openai_while_disabled(self):
+        router = ProviderRouter(self.settings)
+        result = router.probe_model("openai/gpt-5.6-luna")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "paid fallback disabled")
+
+    def test_probe_returns_success_without_exposing_key(self):
+        fake_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))]
+        )
+        with patch.dict(os.environ, {"GROQ_API_KEY": "test-groq-secret"}, clear=True):
+            router = ProviderRouter(self.settings)
+            with patch.object(router, "_litellm_completion", return_value=fake_response):
+                result = router.probe_model("groq/openai/gpt-oss-120b")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.response, "OK")
+        self.assertNotIn("test-groq-secret", result.response)
 
 
 if __name__ == "__main__":
