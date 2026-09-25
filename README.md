@@ -119,7 +119,7 @@ Depois:
 .\.venv\Scripts\python.exe -m app.main doctor
 ```
 
-## Dashboard visual — modo Computer Use
+## Dashboard visual — Agent Chat + Computer Use
 
 Depois do setup:
 
@@ -129,54 +129,65 @@ Depois do setup:
 
 Abre localmente em `http://127.0.0.1:8765`.
 
-O botão **Abrir Chromium e ir ao MySANA** lança um browser Chromium visível. O agente mostra cada acção directamente na página:
+### Fluxo principal
 
-- cursor virtual com animação até ao alvo;
-- borda/halo forte no elemento que vai receber a acção;
-- etiqueta fixa no topo: NAVEGAR, CLICAR, ESCREVER, SELECCIONAR, VALIDAR;
-- feed das acções em tempo real no dashboard;
-- **aprovação obrigatória antes de cada clique, escrita, selecção ou tecla de submissão**.
+1. **Abrir Chromium e ir ao MySANA**.
+2. Concluir o login assistido ou manual.
+3. Escrever no **Agent Chat** o objectivo, por exemplo:
+   `Entra nas despesas e testa os campos obrigatórios sem gravar nem apagar nada.`
+4. O agente analisa a screenshot actual + DOM e gera um **plano proposto**.
+5. O plano aparece no chat e em **Acções do agente**.
+6. Só depois de **Executar plano** começa a execução.
+7. A cada passo o agente:
+   - tira nova screenshot;
+   - lê os elementos interactivos actuais;
+   - decide a próxima acção;
+   - move o cursor e destaca o alvo;
+   - aguarda aprovação no dashboard;
+   - executa a acção aprovada;
+   - observa novamente a página.
+
+O plano inicial é apenas uma previsão. O agente não fica preso a uma sequência cega: se a interface mudar, volta a analisar a nova captura antes de decidir o próximo passo.
+
+### Visão
+
+O planner visual usa por defeito:
+
+```env
+QA_VISION_MODEL=nvidia_nim/z-ai/glm-5.3-flash
+```
+
+com a mesma `NVIDIA_NIM_API_KEY` usada pelo provider NVIDIA.
+
+Se o modelo visual não estiver disponível, o agente pode cair para o planeamento baseado no DOM/texto.
+
+### Login
+
+Se o formulário de login for detectado, podes introduzir as credenciais no modal local ou digitá-las manualmente no Chromium.
+
+As credenciais do modal não são guardadas no runtime, relatório, ficheiros ou GitHub.
+
+Se os campos forem preenchidos mas o controlo de login não for accionado pelo detector normal, o agente visual inicia uma recuperação: observa a screenshot, procura o próximo passo lógico e propõe o clique correcto em vez de ficar parado.
 
 ### Aprovação por acção
 
-Quando o cursor chega ao alvo, o Chromium pára e mostra **AGUARDAR APROVAÇÃO NO DASHBOARD**. O dashboard apresenta:
+Antes de qualquer clique, escrita ou selecção:
 
-- tipo de acção;
-- alvo/selector;
-- valor proposto quando não é secreto;
-- página actual;
-- botões **Rejeitar** e **Aprovar e executar**.
-
-A acção só acontece depois de **Aprovar e executar**. **Rejeitar** cancela essa acção.
-
-No login assistido são pedidos separadamente:
-
-1. autorização para escrever o utilizador;
-2. autorização para escrever a password;
-3. autorização para clicar em Entrar.
-
-A password nunca é apresentada no pedido de aprovação; aparece apenas como valor oculto e respectivo número de caracteres. Por defeito, uma aprovação pendente expira ao fim de 10 minutos:
-
-```env
-QA_APPROVAL_TIMEOUT_SECONDS=600
+```text
+Agente observa
+      ↓
+decide a próxima acção
+      ↓
+cursor vai até ao alvo
+      ↓
+alvo recebe borda/halo
+      ↓
+AGUARDAR APROVAÇÃO NO DASHBOARD
+      ↓
+Rejeitar | Aprovar e executar
 ```
 
-Se for detectado um campo de password, o dashboard pede o login. Podes:
-
-1. introduzir utilizador/password no modal local e observar o agente escrever no Chromium; ou
-2. escolher **Digitar manualmente no Chromium**.
-
-As credenciais enviadas pelo modal são usadas apenas nessa chamada local a `127.0.0.1`; não são guardadas no runtime, relatório, ficheiros ou GitHub.
-
-O primeiro **Iniciar teste visual** continua read-only: o cursor percorre até 10 elementos visíveis, destaca-os, tira screenshot e gera o relatório. Não clica nem preenche dados de negócio.
-
-Para forçar o executável Chromium no Windows:
-
-```env
-QA_CHROMIUM_BINARY=C:\caminho\para\chromium.exe
-```
-
-Se ficar vazio, o projecto procura Chromium automaticamente e, se não encontrar, usa Chrome como browser Chromium-based.
+Passwords nunca aparecem no painel de aprovação; apenas o comprimento do valor secreto.
 
 ## Primeiro login
 
