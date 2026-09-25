@@ -61,29 +61,53 @@
         </p>
       </article>
 
-      <article class="panel test-panel">
+      <article class="panel command-panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Teste visual</p>
-            <h2>Inspecção Computer Use</h2>
+            <p class="eyebrow">Agent Chat</p>
+            <h2>Diz ao agente o que queres fazer</h2>
           </div>
-          <span class="badge badge-safe">Read-only</span>
+          <span class="badge badge-safe">Planeia antes de agir</span>
         </div>
 
-        <p class="test-description">
-          O cursor percorre elementos visíveis no Chromium, destaca cada alvo com uma borda clara, guarda screenshot e gera relatório.
-          Nesta fase não clica nem altera dados.
+        <div id="chatMessages" class="chat-messages">
+          <div class="chat-message chat-agent">
+            <span class="chat-role">Agente</span>
+            <p>Abre o Chromium, navega até ao ecrã pretendido e escreve aqui a tarefa. Primeiro vou gerar o plano; nada será executado nessa fase.</p>
+          </div>
+        </div>
+
+        <form id="agentCommandForm" class="chat-composer">
+          <textarea
+            id="agentCommand"
+            rows="3"
+            maxlength="4000"
+            placeholder="Ex.: Entra nas despesas e testa os campos obrigatórios sem gravar nem apagar nada."
+          ></textarea>
+          <button id="planAgentButton" class="button button-primary" type="submit" disabled>Gerar plano</button>
+        </form>
+
+        <p class="hint">
+          O plano usa a screenshot e os elementos reais da página actual. Durante a execução, o agente volta a observar após cada passo.
         </p>
-
-        <div class="guard-list">
-          <div><span class="guard-dot"></span> Cursor visível</div>
-          <div><span class="guard-dot"></span> Borda no alvo</div>
-          <div><span class="guard-dot"></span> Feed em tempo real</div>
-          <div><span class="guard-dot"></span> Sem gravação</div>
-        </div>
-
-        <button id="startTestButton" class="button button-run" disabled>Iniciar teste visual</button>
       </article>
+    </section>
+
+    <section id="planPanel" class="panel plan-panel hidden">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Plano proposto</p>
+          <h2 id="planSummary">—</h2>
+        </div>
+        <span id="planModelBadge" class="badge badge-neutral">modelo —</span>
+      </div>
+
+      <ol id="planSteps" class="plan-steps"></ol>
+
+      <div class="plan-actions">
+        <span class="hint">O plano é provisório: o agente reavalia a página depois de cada acção.</span>
+        <button id="executePlanButton" class="button button-run" type="button">Executar plano</button>
+      </div>
     </section>
 
     <section id="approvalPanel" class="panel approval-panel hidden">
@@ -150,7 +174,7 @@
       </div>
 
       <div id="emptyExecution" class="empty-state">
-        Abre o Chromium, conclui o login e inicia o primeiro teste visual.
+        Abre o Chromium, escreve um comando no chat, revê o plano e inicia a execução.
       </div>
 
       <div id="testResult" class="result-grid hidden">
