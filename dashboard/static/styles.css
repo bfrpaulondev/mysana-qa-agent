@@ -1010,3 +1010,11 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+
+.plan-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
