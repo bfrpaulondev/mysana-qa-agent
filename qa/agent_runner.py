@@ -33,6 +33,88 @@ class AgentRunner:
         self.settings = settings
         self.event_callback = event_callback
 
+    def plan(self, goal: str) -> dict[str, Any]:
+        self.provider.reset_budget()
+        snapshot = self.browser.snapshot_interactive(max_elements=110)
+        current_url = self.browser.current_url()
+        page_title = self.browser.page_title()
+        compact_snapshot = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
+
+        prompt = f"""
+You are planning a visible browser QA task before execution.
+
+USER COMMAND:
+{goal}
+
+CURRENT PAGE:
+URL: {current_url}
+Title: {page_title}
+
+You have the current screenshot attached and this compact DOM:
+{compact_snapshot}
+
+Return exactly one JSON object:
+{{
+  "summary": "short explanation of what you intend to do",
+  "steps": [
+    "high-level step 1",
+    "high-level step 2"
+  ]
+}}
+
+Planning rules:
+- This is a preview only. Do not claim an action already happened.
+- Keep 2 to 6 concise, concrete steps.
+- Base the plan on the current screenshot and DOM.
+- Mention when a step will require user approval.
+- Never include passwords or secrets in the plan.
+- Never plan destructive actions such as deleting records, approving business workflows, payments, transfers or business rejections.
+- The execution agent will re-observe after every action, so mark the plan as provisional if the page may change.
+""".strip()
+
+        try:
+            completion = self.provider.vision_completion(
+                prompt,
+                self.browser.screenshot_base64(),
+            )
+        except AllProvidersFailed as exc:
+            self._emit("vision", f"Vision indisponível no planeamento; fallback texto: {exc}")
+            completion = self.provider.completion(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Create a short safe browser QA plan. Return JSON only with "
+                            "summary and steps. Do not include secrets or destructive actions."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Command: {goal}\nURL: {current_url}\nTitle: {page_title}\n"
+                            f"DOM: {compact_snapshot}"
+                        ),
+                    },
+                ]
+            )
+
+        data = self._parse_json_object(completion.content)
+        steps = data.get("steps")
+        if not isinstance(steps, list):
+            raise ValueError("Planner response must contain a steps array")
+
+        clean_steps = [str(step).strip() for step in steps if str(step).strip()]
+        if not clean_steps:
+            raise ValueError("Planner returned an empty plan")
+
+        return {
+            "summary": str(data.get("summary") or "Plano proposto pelo agente."),
+            "steps": clean_steps[:6],
+            "model": completion.model,
+            "url": current_url,
+            "title": page_title,
+        }
+
     def run(self, goal: str, report_name: str = "agent-qa") -> RunReport:
         self.provider.reset_budget()
         report = RunReport(report_name, self.settings.evidence_dir)
@@ -242,18 +324,21 @@ Interactive elements JSON: {compact_snapshot}
         }
         return resolved
 
-    def _parse_action(self, content: str) -> dict[str, Any]:
+    def _parse_json_object(self, content: str) -> dict[str, Any]:
         text = content.strip()
         match = _JSON_BLOCK.search(text)
         if match:
             text = match.group(1)
         try:
-            action = json.loads(text)
+            data = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"LLM returned invalid action JSON: {content[:500]!r}") from exc
-        if not isinstance(action, dict):
-            raise ValueError("LLM action must be a JSON object")
-        return action
+            raise ValueError(f"LLM returned invalid JSON: {content[:500]!r}") from exc
+        if not isinstance(data, dict):
+            raise ValueError("LLM response must be a JSON object")
+        return data
+
+    def _parse_action(self, content: str) -> dict[str, Any]:
+        return self._parse_json_object(content)
 
     def _emit(self, action: str, message: str) -> None:
         if self.event_callback:
