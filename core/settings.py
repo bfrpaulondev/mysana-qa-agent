@@ -51,6 +51,7 @@ class Settings:
     visual_action_delay_ms: int = 500
     visual_typing_delay_ms: int = 55
     approval_timeout_seconds: int = 600
+    prefer_openai: bool = True
     vision_model: str = "openai/gpt-5.6-luna"
     llm_models: tuple[str, ...] = (
         "openai/gpt-5.6-luna",
@@ -71,6 +72,24 @@ class Settings:
             load_dotenv(ROOT_DIR / ".env")
 
         default_profile = _default_chrome_profile_dir()
+        prefer_openai = _env_bool("QA_PREFER_OPENAI", True)
+        configured_vision_model = os.getenv(
+            "QA_VISION_MODEL",
+            "openai/gpt-5.6-luna",
+        ).strip() or "openai/gpt-5.6-luna"
+        configured_llm_models = _env_list(
+            "QA_LLM_MODELS",
+            "openai/gpt-5.6-luna,groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3",
+        )
+
+        if prefer_openai:
+            openai_primary = "openai/gpt-5.6-luna"
+            configured_vision_model = openai_primary
+            configured_llm_models = (
+                openai_primary,
+                *tuple(model for model in configured_llm_models if model != openai_primary),
+            )
+
         settings = cls(
             base_url=os.getenv("MYSANA_BASE_URL", "https://mysana.sanahotels.com").rstrip("/"),
             allowed_hosts=_env_list("QA_ALLOWED_HOSTS", "mysana.sanahotels.com"),
@@ -85,14 +104,9 @@ class Settings:
             visual_action_delay_ms=_env_int("QA_VISUAL_ACTION_DELAY_MS", 500),
             visual_typing_delay_ms=_env_int("QA_VISUAL_TYPING_DELAY_MS", 55),
             approval_timeout_seconds=_env_int("QA_APPROVAL_TIMEOUT_SECONDS", 600),
-            vision_model=os.getenv(
-                "QA_VISION_MODEL",
-                "openai/gpt-5.6-luna",
-            ).strip() or "openai/gpt-5.6-luna",
-            llm_models=_env_list(
-                "QA_LLM_MODELS",
-                "openai/gpt-5.6-luna,groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3",
-            ),
+            prefer_openai=prefer_openai,
+            vision_model=configured_vision_model,
+            llm_models=configured_llm_models,
             max_llm_calls_per_task=_env_int("QA_MAX_LLM_CALLS_PER_TASK", 8),
             max_agent_steps=_env_int("QA_MAX_AGENT_STEPS", 10),
             llm_timeout_seconds=_env_int("QA_LLM_TIMEOUT_SECONDS", 60),
