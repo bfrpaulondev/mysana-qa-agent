@@ -371,6 +371,12 @@ async function refresh() {
     const status = await request("/api/status");
     $("buildBadge").textContent = status.version ? `build ${status.version}` : "build desconhecida";
 
+    const computerUse = status.computer_use || {};
+    $("computerEngineBadge").textContent = computerUse.enabled
+      ? `Computer Use · ${computerUse.model || "OpenAI"}`
+      : "execução fallback";
+    $("computerEngineBadge").className = `badge ${computerUse.enabled ? "badge-pass" : "badge-warn"}`;
+
     renderProviders(status.providers);
     renderSession(status.session, status.test_running);
     renderPlan(status.current_plan, status.current_goal, status.test_running);
