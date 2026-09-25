@@ -85,6 +85,47 @@
       </article>
     </section>
 
+    <section id="approvalPanel" class="panel approval-panel hidden">
+      <div class="approval-accent"></div>
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Aprovação necessária</p>
+          <h2>O agente está parado à tua espera</h2>
+        </div>
+        <span id="approvalActionBadge" class="badge badge-warn">PENDENTE</span>
+      </div>
+
+      <div class="approval-body">
+        <div class="approval-main">
+          <span class="metric-label">Acção proposta</span>
+          <strong id="approvalLabel">—</strong>
+          <p id="approvalDescription" class="approval-description">Revê o alvo antes de autorizar.</p>
+        </div>
+
+        <div class="approval-details">
+          <div>
+            <span class="metric-label">Alvo</span>
+            <code id="approvalTarget">—</code>
+          </div>
+          <div>
+            <span class="metric-label">Valor</span>
+            <strong id="approvalValue">—</strong>
+          </div>
+          <div class="approval-wide">
+            <span class="metric-label">Página</span>
+            <span id="approvalPage" class="muted">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="approval-actions">
+        <button id="rejectApprovalButton" class="button button-reject" type="button">Rejeitar</button>
+        <button id="approveApprovalButton" class="button button-approve" type="button">Aprovar e executar</button>
+      </div>
+
+      <p class="hint">Nada é clicado, escrito ou seleccionado enquanto esta aprovação estiver pendente.</p>
+    </section>
+
     <section class="panel activity-panel">
       <div class="panel-header">
         <div>
