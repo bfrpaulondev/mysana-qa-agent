@@ -52,6 +52,10 @@ class Settings:
     visual_typing_delay_ms: int = 55
     approval_timeout_seconds: int = 600
     prefer_openai: bool = True
+    use_native_computer: bool = True
+    computer_model: str = "gpt-5.6-sol"
+    computer_reasoning_effort: str = "low"
+    computer_max_turns: int = 20
     vision_model: str = "openai/gpt-5.6-luna"
     llm_models: tuple[str, ...] = (
         "openai/gpt-5.6-luna",
@@ -73,6 +77,7 @@ class Settings:
 
         default_profile = _default_chrome_profile_dir()
         prefer_openai = _env_bool("QA_PREFER_OPENAI", True)
+        use_native_computer = _env_bool("QA_USE_NATIVE_COMPUTER", True)
         configured_vision_model = os.getenv(
             "QA_VISION_MODEL",
             "openai/gpt-5.6-luna",
@@ -105,6 +110,13 @@ class Settings:
             visual_typing_delay_ms=_env_int("QA_VISUAL_TYPING_DELAY_MS", 55),
             approval_timeout_seconds=_env_int("QA_APPROVAL_TIMEOUT_SECONDS", 600),
             prefer_openai=prefer_openai,
+            use_native_computer=use_native_computer,
+            computer_model=os.getenv("QA_COMPUTER_MODEL", "gpt-5.6-sol").strip() or "gpt-5.6-sol",
+            computer_reasoning_effort=os.getenv(
+                "QA_COMPUTER_REASONING_EFFORT",
+                "low",
+            ).strip().lower() or "low",
+            computer_max_turns=_env_int("QA_COMPUTER_MAX_TURNS", 20),
             vision_model=configured_vision_model,
             llm_models=configured_llm_models,
             max_llm_calls_per_task=_env_int("QA_MAX_LLM_CALLS_PER_TASK", 8),
