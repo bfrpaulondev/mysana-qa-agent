@@ -11,11 +11,12 @@ class DashboardRuntimeTests(unittest.TestCase):
         runtime = DashboardRuntime(Settings())
         status = runtime.session_status()
         self.assertEqual(status["state"], "closed")
+        self.assertEqual(status["browser"], "Chromium")
 
-    def test_read_only_test_requires_open_browser(self):
+    def test_visual_test_requires_open_browser(self):
         runtime = DashboardRuntime(Settings())
         with self.assertRaises(RuntimeError):
-            runtime.run_read_only_test()
+            runtime.start_visual_test()
 
     def test_provider_payload_never_contains_api_key(self):
         with patch.dict(
@@ -42,6 +43,23 @@ class DashboardRuntimeTests(unittest.TestCase):
         self.assertTrue(openai["configured"])
         self.assertFalse(openai["enabled"])
 
+    def test_status_payload_does_not_contain_credentials(self):
+        with patch.dict(
+            os.environ,
+            {
+                "GROQ_API_KEY": "secret-groq-value",
+                "NVIDIA_NIM_API_KEY": "secret-nvidia-value",
+            },
+            clear=True,
+        ):
+            runtime = DashboardRuntime(Settings())
+            payload = runtime.status_payload()
+
+        serialized = repr(payload)
+        self.assertNotIn("secret-groq-value", serialized)
+        self.assertNotIn("secret-nvidia-value", serialized)
+        self.assertNotIn("password", serialized.lower())
+
     def test_dashboard_routes_exist(self):
         app = create_app(Settings())
         paths = {route.path for route in app.routes}
@@ -49,6 +67,8 @@ class DashboardRuntimeTests(unittest.TestCase):
         self.assertIn("/api/status", paths)
         self.assertIn("/api/providers/test", paths)
         self.assertIn("/api/session/open", paths)
+        self.assertIn("/api/session/login", paths)
+        self.assertIn("/api/session/close", paths)
         self.assertIn("/api/tests/start", paths)
 
 
