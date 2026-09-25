@@ -19,7 +19,7 @@ from qa.reporter import RunReport, StepResult
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-DASHBOARD_VERSION = "0.6.0-agent-chat"
+DASHBOARD_VERSION = "0.7.0-approval-rules"
 
 
 class LoginPayload(BaseModel):
@@ -42,6 +42,7 @@ class DashboardRuntime:
         self.approval_condition = threading.Condition(self.lock)
         self.pending_approval: dict[str, Any] | None = None
         self.approval_results: dict[str, bool] = {}
+        self.auto_approve_rules: set[str] = set()
         self.last_provider_tests: list[dict[str, Any]] = []
         self.last_test: dict[str, Any] | None = None
         self.activity: list[dict[str, Any]] = []
@@ -66,11 +67,24 @@ class DashboardRuntime:
         )
 
     def request_approval(self, request: dict[str, Any]) -> bool:
+        action_type = str(request.get("action") or "action").strip().lower()
+        secret = bool(request.get("secret"))
+
+        with self.approval_condition:
+            auto_allowed = action_type in self.auto_approve_rules and not secret
+
+        if auto_allowed:
+            self._add_activity(
+                "approval",
+                f"Auto-aprovado pela regra activa: {action_type.upper()}",
+            )
+            return True
+
         approval_id = uuid.uuid4().hex
         created_at = time.time()
         pending = {
             "id": approval_id,
-            "action": str(request.get("action") or "action"),
+            "action": action_type,
             "label": str(request.get("label") or "Acção pendente"),
             "target": str(request.get("target") or ""),
             "secret": bool(request.get("secret")),
@@ -112,20 +126,80 @@ class DashboardRuntime:
             )
             return approved
 
-    def resolve_approval(self, approval_id: str, approved: bool) -> dict[str, Any]:
+    def resolve_approval(
+        self,
+        approval_id: str,
+        approved: bool,
+        remember_type: bool = False,
+    ) -> dict[str, Any]:
         with self.approval_condition:
             pending = self.pending_approval
             if pending is None or pending.get("id") != approval_id:
                 raise RuntimeError("Esta aprovação já não está pendente.")
 
+            action_type = str(pending.get("action") or "").lower()
+            if remember_type:
+                if action_type not in {"click", "write", "select"}:
+                    raise RuntimeError(
+                        f"O tipo de acção '{action_type}' não suporta aprovação automática."
+                    )
+                self.auto_approve_rules.add(action_type)
+
             self.approval_results[approval_id] = approved
             self.pending_approval = None
             self.approval_condition.notify_all()
 
+        if remember_type and approved:
+            self._add_activity(
+                "approval-rule",
+                f"Regra activa nesta sessão: sempre aprovar {action_type.upper()}",
+            )
+
         return {
             "id": approval_id,
             "approved": approved,
+            "remembered_type": action_type if remember_type and approved else None,
         }
+
+    def disable_auto_approval(self, action_type: str) -> dict[str, Any]:
+        normalized = action_type.strip().lower()
+        if normalized not in {"click", "write", "select"}:
+            raise RuntimeError(f"Regra de aprovação desconhecida: {action_type}")
+
+        with self.approval_condition:
+            existed = normalized in self.auto_approve_rules
+            self.auto_approve_rules.discard(normalized)
+
+        if existed:
+            self._add_activity(
+                "approval-rule",
+                f"Regra desactivada: {normalized.upper()} volta a pedir aprovação",
+            )
+
+        return {
+            "action": normalized,
+            "active": False,
+            "changed": existed,
+        }
+
+    def approval_rules_payload(self) -> list[dict[str, Any]]:
+        labels = {
+            "click": "CLICAR",
+            "write": "ESCREVER",
+            "select": "SELECCIONAR",
+        }
+        with self.approval_condition:
+            active = sorted(self.auto_approve_rules)
+
+        return [
+            {
+                "action": action,
+                "label": labels[action],
+                "scope": "session",
+                "secret_exception": action == "write",
+            }
+            for action in active
+        ]
 
     def _reject_pending_approval(self) -> None:
         with self.approval_condition:
@@ -418,6 +492,7 @@ class DashboardRuntime:
 
             self.activity = []
             self.login_required = False
+            self.auto_approve_rules.clear()
             self.browser = BrowserSession(
                 self.settings,
                 event_callback=self._on_browser_event,
@@ -478,6 +553,7 @@ class DashboardRuntime:
             browser = self.browser
             self.browser = None
             self.login_required = False
+            self.auto_approve_rules.clear()
 
         if browser is not None:
             browser.close()
@@ -613,6 +689,7 @@ class DashboardRuntime:
             "test_running": self.test_running,
             "activity": list(self.activity[-40:]),
             "pending_approval": dict(self.pending_approval) if self.pending_approval else None,
+            "auto_approve_rules": self.approval_rules_payload(),
             "current_goal": self.current_goal,
             "current_plan": dict(self.current_plan) if self.current_plan else None,
             "paid_fallback_enabled": self.settings.enable_paid_fallback,
@@ -676,6 +753,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return runtime.resolve_approval(approval_id, True)
         except Exception as exc:
             raise HTTPException(status_code=409, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.post("/api/approvals/{approval_id}/approve-always")
+    def api_approve_action_always(approval_id: str) -> dict[str, Any]:
+        try:
+            return runtime.resolve_approval(
+                approval_id,
+                True,
+                remember_type=True,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.delete("/api/approval-rules/{action_type}")
+    def api_disable_approval_rule(action_type: str) -> dict[str, Any]:
+        try:
+            return runtime.disable_auto_approval(action_type)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
 
     @app.post("/api/approvals/{approval_id}/reject")
     def api_reject_action(approval_id: str) -> dict[str, Any]:
