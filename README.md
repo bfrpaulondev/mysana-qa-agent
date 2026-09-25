@@ -119,6 +119,32 @@ Depois:
 .\.venv\Scripts\python.exe -m app.main doctor
 ```
 
+## Dashboard visual
+
+Depois do setup, inicia a interface visual:
+
+```powershell
+.\\.venv\\Scripts\\python.exe -m app.main dashboard
+```
+
+O dashboard abre automaticamente em:
+
+```text
+http://127.0.0.1:8765
+```
+
+A interface mostra:
+
+- estado/configuração de Groq, NVIDIA NIM e OpenAI;
+- último teste de conectividade dos providers e latência;
+- estado da sessão Chrome/MySANA;
+- botão **Abrir MySANA**;
+- botão **Testar providers**;
+- botão **Iniciar teste** para um smoke test read-only;
+- resultado e pasta local das evidências.
+
+O dashboard é servido apenas em `127.0.0.1` e não expõe API keys. O primeiro teste visual é propositadamente read-only: lê URL/título, conta elementos interactivos, tira screenshot e gera relatório sem clicar ou preencher campos.
+
 ## Primeiro login
 
 ```powershell
