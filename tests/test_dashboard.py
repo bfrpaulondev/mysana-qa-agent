@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from core.settings import Settings
-from dashboard.server import DashboardRuntime, create_app
+from dashboard.server import DASHBOARD_VERSION, DashboardRuntime, create_app
 
 
 class DashboardRuntimeTests(unittest.TestCase):
@@ -167,6 +167,12 @@ class DashboardRuntimeTests(unittest.TestCase):
         runtime.resolve_approval(approval_id, False)
         thread.join(timeout=1)
         self.assertEqual(results, [False])
+
+    def test_status_payload_includes_build_version(self):
+        runtime = DashboardRuntime(Settings())
+        payload = runtime.status_payload()
+        self.assertEqual(payload["version"], DASHBOARD_VERSION)
+        self.assertIn("computer-use", payload["version"])
 
     def test_dashboard_routes_exist(self):
         app = create_app(Settings())
