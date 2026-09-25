@@ -19,7 +19,7 @@ from qa.reporter import RunReport, StepResult
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-DASHBOARD_VERSION = "0.7.0-approval-rules"
+DASHBOARD_VERSION = "0.8.0-live-steering"
 
 
 class LoginPayload(BaseModel):
@@ -29,6 +29,11 @@ class LoginPayload(BaseModel):
 
 class AgentCommandPayload(BaseModel):
     command: str = Field(min_length=3, max_length=4000)
+
+
+class AgentSteerPayload(BaseModel):
+    message: str = Field(min_length=2, max_length=2000)
+    reject_pending: bool = True
 
 
 class DashboardRuntime:
@@ -50,6 +55,16 @@ class DashboardRuntime:
         self.login_required = False
         self.current_goal: str | None = None
         self.current_plan: dict[str, Any] | None = None
+        self.steering_messages: list[str] = []
+        self.stop_requested = False
+        self.agent_state: dict[str, Any] = {
+            "phase": "idle",
+            "step": None,
+            "detail": "Agente em espera.",
+            "provider": None,
+            "phase_started_at": time.time(),
+            "last_decision": None,
+        }
 
     def _on_browser_event(self, event: dict[str, Any]) -> None:
         with self.lock:
@@ -65,6 +80,97 @@ class DashboardRuntime:
                 "timestamp": time.time(),
             }
         )
+
+    def _update_agent_state(self, update: dict[str, Any]) -> None:
+        with self.lock:
+            previous_phase = self.agent_state.get("phase")
+            previous_step = self.agent_state.get("step")
+            next_phase = update.get("phase", previous_phase)
+            next_step = update.get("step", previous_step)
+
+            if next_phase != previous_phase or next_step != previous_step:
+                self.agent_state["phase_started_at"] = time.time()
+
+            for key in ("phase", "step", "detail", "provider"):
+                if key in update:
+                    self.agent_state[key] = update[key]
+
+            if update.get("last_decision") is not None:
+                self.agent_state["last_decision"] = update["last_decision"]
+
+    def _consume_agent_control(self) -> dict[str, Any]:
+        with self.lock:
+            steering = list(self.steering_messages)
+            self.steering_messages.clear()
+            return {
+                "stop_requested": self.stop_requested,
+                "steering": steering,
+            }
+
+    def steer_agent(self, message: str, reject_pending: bool = True) -> dict[str, Any]:
+        text = message.strip()
+        if not text:
+            raise RuntimeError("Escreve uma correcção para o agente.")
+
+        with self.lock:
+            if not self.test_running:
+                raise RuntimeError("O agente não está em execução.")
+            self.steering_messages.append(text)
+            has_pending = self.pending_approval is not None
+
+        self._add_activity("steer", f"Correcção do utilizador: {text[:260]}")
+
+        if has_pending and reject_pending:
+            self._reject_pending_approval()
+            self._add_activity(
+                "steer",
+                "Acção pendente rejeitada automaticamente para o agente poder reavaliar.",
+            )
+
+        self._update_agent_state(
+            {
+                "detail": "Correcção recebida; será aplicada no próximo ciclo de decisão.",
+            }
+        )
+
+        return {
+            "queued": True,
+            "message": text,
+            "pending_action_rejected": bool(has_pending and reject_pending),
+        }
+
+    def stop_agent(self) -> dict[str, Any]:
+        with self.lock:
+            if not self.test_running:
+                return {
+                    "stop_requested": False,
+                    "message": "O agente já está parado.",
+                }
+            self.stop_requested = True
+            has_pending = self.pending_approval is not None
+
+        if has_pending:
+            self._reject_pending_approval()
+
+        self._add_activity(
+            "stop",
+            "Pedido de paragem recebido. Nenhuma nova acção será executada.",
+        )
+        self._update_agent_state(
+            {
+                "detail": (
+                    "Paragem pedida. Se existir uma chamada ao modelo em curso, "
+                    "o agente pára assim que essa chamada terminar."
+                ),
+            }
+        )
+        return {
+            "stop_requested": True,
+            "message": (
+                "Paragem pedida. O agente não executará novas acções; "
+                "uma chamada ao modelo já iniciada pode precisar de terminar primeiro."
+            ),
+        }
 
     def request_approval(self, request: dict[str, Any]) -> bool:
         action_type = str(request.get("action") or "action").strip().lower()
@@ -222,6 +328,8 @@ class DashboardRuntime:
             provider=self.provider,
             settings=self.settings,
             event_callback=self._add_activity,
+            state_callback=self._update_agent_state,
+            control_callback=self._consume_agent_control,
         )
 
     def plan_agent_command(self, command: str) -> dict[str, Any]:
@@ -262,6 +370,8 @@ class DashboardRuntime:
 
             goal = self.current_goal
             self.test_running = True
+            self.stop_requested = False
+            self.steering_messages.clear()
             self.last_test = {
                 "ok": None,
                 "status": "RUNNING",
@@ -319,6 +429,8 @@ class DashboardRuntime:
             if self.browser is None or self.browser.driver is None:
                 return
             self.test_running = True
+            self.stop_requested = False
+            self.steering_messages.clear()
             self.last_test = {
                 "ok": None,
                 "status": "RUNNING",
@@ -692,6 +804,8 @@ class DashboardRuntime:
             "auto_approve_rules": self.approval_rules_payload(),
             "current_goal": self.current_goal,
             "current_plan": dict(self.current_plan) if self.current_plan else None,
+            "agent_state": dict(self.agent_state),
+            "steering_queue_size": len(self.steering_messages),
             "paid_fallback_enabled": self.settings.enable_paid_fallback,
             "safe_mode": not self.settings.allow_dangerous_actions,
         }
@@ -790,6 +904,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def api_agent_run() -> dict[str, Any]:
         try:
             return runtime.execute_agent_plan()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.post("/api/agent/steer")
+    def api_agent_steer(payload: AgentSteerPayload) -> dict[str, Any]:
+        try:
+            return runtime.steer_agent(
+                payload.message,
+                reject_pending=payload.reject_pending,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.post("/api/agent/stop")
+    def api_agent_stop() -> dict[str, Any]:
+        try:
+            return runtime.stop_agent()
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
 
