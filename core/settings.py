@@ -32,13 +32,21 @@ def _env_list(name: str, default: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in raw.split(",") if item.strip())
 
 
+def _default_chrome_profile_dir() -> Path:
+    if os.name == "nt":
+        local_app_data = os.getenv("LOCALAPPDATA", "").strip()
+        if local_app_data:
+            return Path(local_app_data) / "MySANA-QA-Agent" / "browser-profile"
+    return ROOT_DIR / "runtime" / "chrome-profile"
+
+
 @dataclass(slots=True)
 class Settings:
     base_url: str = "https://mysana.sanahotels.com"
     allowed_hosts: tuple[str, ...] = ("mysana.sanahotels.com",)
     headless: bool = False
     chromium_binary: str | None = None
-    chrome_profile_dir: Path = field(default_factory=lambda: ROOT_DIR / "runtime" / "chrome-profile")
+    chrome_profile_dir: Path = field(default_factory=_default_chrome_profile_dir)
     evidence_dir: Path = field(default_factory=lambda: ROOT_DIR / "runtime" / "evidence")
     visual_action_delay_ms: int = 500
     visual_typing_delay_ms: int = 55
@@ -61,13 +69,14 @@ class Settings:
         if load_dotenv:
             load_dotenv(ROOT_DIR / ".env")
 
+        default_profile = _default_chrome_profile_dir()
         settings = cls(
             base_url=os.getenv("MYSANA_BASE_URL", "https://mysana.sanahotels.com").rstrip("/"),
             allowed_hosts=_env_list("QA_ALLOWED_HOSTS", "mysana.sanahotels.com"),
             headless=_env_bool("QA_HEADLESS", False),
             chromium_binary=os.getenv("QA_CHROMIUM_BINARY", "").strip() or None,
             chrome_profile_dir=Path(
-                os.getenv("QA_CHROME_PROFILE_DIR", str(ROOT_DIR / "runtime" / "chrome-profile"))
+                os.getenv("QA_CHROME_PROFILE_DIR", str(default_profile))
             ).expanduser().resolve(),
             evidence_dir=Path(
                 os.getenv("QA_EVIDENCE_DIR", str(ROOT_DIR / "runtime" / "evidence"))
