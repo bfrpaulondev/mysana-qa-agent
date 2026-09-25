@@ -417,7 +417,15 @@ class DashboardRuntimeTests(unittest.TestCase):
         runtime = DashboardRuntime(Settings())
         payload = runtime.status_payload()
         self.assertEqual(payload["version"], DASHBOARD_VERSION)
-        self.assertIn("openai-primary", payload["version"])
+        self.assertIn("native-computer", payload["version"])
+
+    def test_status_exposes_native_computer_engine(self):
+        runtime = DashboardRuntime(Settings())
+        payload = runtime.status_payload()
+
+        self.assertTrue(payload["computer_use"]["enabled"])
+        self.assertEqual(payload["computer_use"]["model"], "gpt-5.6-sol")
+        self.assertEqual(payload["computer_use"]["reasoning_effort"], "low")
 
     def test_agent_plan_requires_open_browser(self):
         runtime = DashboardRuntime(Settings())
