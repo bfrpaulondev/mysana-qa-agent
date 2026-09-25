@@ -175,6 +175,7 @@ class ProviderRouter:
         prompt: str,
         image_base64: str,
         mime_type: str = "image/png",
+        max_tokens: int | None = None,
     ) -> CompletionResult:
         model = self.settings.vision_model
         if not self._has_credentials(model):
@@ -205,7 +206,7 @@ class ProviderRouter:
                         ],
                     }
                 ],
-                max_tokens=self.settings.llm_max_output_tokens,
+                max_tokens=max_tokens or self.settings.llm_max_output_tokens,
             )
             content = response.choices[0].message.content
             if not content:
@@ -220,7 +221,11 @@ class ProviderRouter:
                 f"Vision model failed ({model}): {type(exc).__name__}: {exc}"
             ) from exc
 
-    def completion(self, messages: list[dict[str, str]]) -> CompletionResult:
+    def completion(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int | None = None,
+    ) -> CompletionResult:
         if self.calls_used >= self.settings.max_llm_calls_per_task:
             raise LlmBudgetExceeded(
                 f"LLM call budget exceeded ({self.settings.max_llm_calls_per_task} calls)."
@@ -244,7 +249,7 @@ class ProviderRouter:
                 response = self._litellm_completion(
                     model=model,
                     messages=messages,
-                    max_tokens=self.settings.llm_max_output_tokens,
+                    max_tokens=max_tokens or self.settings.llm_max_output_tokens,
                 )
                 content = response.choices[0].message.content
                 if not content:
