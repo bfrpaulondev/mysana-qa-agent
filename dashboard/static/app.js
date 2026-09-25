@@ -64,7 +64,11 @@ function renderProviders(providers) {
         </div>
         <span class="provider-model" title="${escapeHtml(provider.model)}">${escapeHtml(provider.model)}</span>
         <div class="provider-meta">
-          <span>${provider.paid ? "fallback pago" : "free tier"}</span>
+          <span>${
+            provider.paid
+              ? (provider.role === "primary" ? "primário pago" : "fallback pago")
+              : (provider.role === "primary" ? "primário gratuito" : "fallback gratuito")
+          }${provider.vision ? " · visão" : ""}</span>
           <span>${latency}</span>
         </div>
       </article>
