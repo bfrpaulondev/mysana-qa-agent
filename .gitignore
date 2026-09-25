@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Never commit authenticated browser data or QA evidence.
+runtime/chrome-profile/
+runtime/evidence/
+runtime/*.log
+
+# Local/private workflow data.
+workflows/private/
