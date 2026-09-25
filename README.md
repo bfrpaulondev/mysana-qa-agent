@@ -134,7 +134,32 @@ O botão **Abrir Chromium e ir ao MySANA** lança um browser Chromium visível. 
 - cursor virtual com animação até ao alvo;
 - borda/halo forte no elemento que vai receber a acção;
 - etiqueta fixa no topo: NAVEGAR, CLICAR, ESCREVER, SELECCIONAR, VALIDAR;
-- feed das acções em tempo real no dashboard.
+- feed das acções em tempo real no dashboard;
+- **aprovação obrigatória antes de cada clique, escrita, selecção ou tecla de submissão**.
+
+### Aprovação por acção
+
+Quando o cursor chega ao alvo, o Chromium pára e mostra **AGUARDAR APROVAÇÃO NO DASHBOARD**. O dashboard apresenta:
+
+- tipo de acção;
+- alvo/selector;
+- valor proposto quando não é secreto;
+- página actual;
+- botões **Rejeitar** e **Aprovar e executar**.
+
+A acção só acontece depois de **Aprovar e executar**. **Rejeitar** cancela essa acção.
+
+No login assistido são pedidos separadamente:
+
+1. autorização para escrever o utilizador;
+2. autorização para escrever a password;
+3. autorização para clicar em Entrar.
+
+A password nunca é apresentada no pedido de aprovação; aparece apenas como valor oculto e respectivo número de caracteres. Por defeito, uma aprovação pendente expira ao fim de 10 minutos:
+
+```env
+QA_APPROVAL_TIMEOUT_SECONDS=600
+```
 
 Se for detectado um campo de password, o dashboard pede o login. Podes:
 
