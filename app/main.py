@@ -42,6 +42,32 @@ def cmd_doctor(settings: Settings) -> int:
     return 0
 
 
+def cmd_providers_test(settings: Settings) -> int:
+    provider = ProviderRouter(settings)
+    free_models = [model for model in settings.llm_models if not model.startswith("openai/")]
+
+    print("Provider connectivity test")
+    print("One minimal request is sent to each configured free provider.")
+
+    failed = False
+    for model in free_models:
+        probe = provider.probe_model(model)
+        if probe.ok:
+            print(
+                f"PASS | {probe.model} | {probe.latency_ms} ms | "
+                f"response={probe.response!r}"
+            )
+        else:
+            failed = True
+            print(
+                f"FAIL | {probe.model} | {probe.latency_ms} ms | "
+                f"{probe.error}"
+            )
+
+    print("Secrets: hidden")
+    return 1 if failed else 0
+
+
 def cmd_login(settings: Settings) -> int:
     browser = BrowserSession(settings)
     browser.start()
@@ -100,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("doctor", help="Validate local configuration and provider keys")
+    sub.add_parser("providers-test", help="Test Groq and NVIDIA NIM with one minimal call each")
     sub.add_parser("login", help="Open the persistent Chrome profile for manual login")
 
     inspect = sub.add_parser("inspect", help="Inspect visible interactive elements on the current page")
@@ -121,6 +148,8 @@ def main() -> int:
 
     if args.command == "doctor":
         return cmd_doctor(settings)
+    if args.command == "providers-test":
+        return cmd_providers_test(settings)
     if args.command == "login":
         return cmd_login(settings)
     if args.command == "inspect":
