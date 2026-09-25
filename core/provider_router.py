@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,6 +26,15 @@ class CompletionResult:
     content: str
     model: str
     attempts: list[str]
+
+
+@dataclass(slots=True)
+class ProviderProbe:
+    model: str
+    ok: bool
+    latency_ms: int
+    response: str = ""
+    error: str = ""
 
 
 class ProviderRouter:
@@ -91,16 +101,80 @@ class ProviderRouter:
     def _is_paid_fallback(self, model: str) -> bool:
         return model.startswith("openai/")
 
+    def _litellm_completion(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+    ) -> Any:
+        try:
+            import litellm
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("LiteLLM is not installed. Run: pip install -r requirements.txt") from exc
+
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "drop_params": True,
+            "timeout": self.settings.llm_timeout_seconds,
+            "max_tokens": max_tokens,
+        }
+        kwargs.update(self._provider_kwargs(model))
+        return litellm.completion(**kwargs)
+
+    def probe_model(self, model: str) -> ProviderProbe:
+        """Make one tiny request to a provider without exposing its credential."""
+
+        if self._is_paid_fallback(model) and not self.settings.enable_paid_fallback:
+            return ProviderProbe(
+                model=model,
+                ok=False,
+                latency_ms=0,
+                error="paid fallback disabled",
+            )
+
+        if not self._has_credentials(model):
+            return ProviderProbe(
+                model=model,
+                ok=False,
+                latency_ms=0,
+                error="credential not configured",
+            )
+
+        started = time.perf_counter()
+        try:
+            response = self._litellm_completion(
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": "Provider connectivity check. Reply with exactly: OK",
+                    }
+                ],
+                max_tokens=64,
+            )
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            content = (response.choices[0].message.content or "").strip()
+            return ProviderProbe(
+                model=model,
+                ok=True,
+                latency_ms=latency_ms,
+                response=content[:120],
+            )
+        except Exception as exc:
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            return ProviderProbe(
+                model=model,
+                ok=False,
+                latency_ms=latency_ms,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+
     def completion(self, messages: list[dict[str, str]]) -> CompletionResult:
         if self.calls_used >= self.settings.max_llm_calls_per_task:
             raise LlmBudgetExceeded(
                 f"LLM call budget exceeded ({self.settings.max_llm_calls_per_task} calls)."
             )
-
-        try:
-            import litellm
-        except ImportError as exc:  # pragma: no cover
-            raise RuntimeError("LiteLLM is not installed. Run: pip install -r requirements.txt") from exc
 
         self.calls_used += 1
         attempts: list[str] = []
@@ -117,16 +191,11 @@ class ProviderRouter:
             attempts.append(model)
             logger.info("Trying LLM provider: %s", model)
             try:
-                kwargs: dict[str, Any] = {
-                    "model": model,
-                    "messages": messages,
-                    "drop_params": True,
-                    "timeout": self.settings.llm_timeout_seconds,
-                    "max_tokens": self.settings.llm_max_output_tokens,
-                }
-                kwargs.update(self._provider_kwargs(model))
-
-                response = litellm.completion(**kwargs)
+                response = self._litellm_completion(
+                    model=model,
+                    messages=messages,
+                    max_tokens=self.settings.llm_max_output_tokens,
+                )
                 content = response.choices[0].message.content
                 if not content:
                     raise RuntimeError("Provider returned empty content")
