@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+from pathlib import Path
+
+from browser.session import BrowserSession
+from core.provider_router import ProviderRouter
+from core.settings import Settings
+from qa.agent_runner import AgentRunner
+from qa.workflow_runner import WorkflowRunner
+
+
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    )
+
+
+def cmd_doctor(settings: Settings) -> int:
+    import os
+
+    providers = {
+        "Groq": bool(os.getenv("GROQ_API_KEY")),
+        "NVIDIA NIM": bool(os.getenv("NVIDIA_NIM_API_KEY")),
+        "OpenAI": bool(os.getenv("OPENAI_API_KEY")),
+    }
+    print("MySANA QA Agent doctor")
+    print(f"Base URL: {settings.base_url}")
+    print(f"Allowed hosts: {', '.join(settings.allowed_hosts)}")
+    print(f"Headless: {settings.headless}")
+    print(f"Paid fallback enabled: {settings.enable_paid_fallback}")
+    print(f"LLM call budget: {settings.max_llm_calls_per_task}")
+    for name, configured in providers.items():
+        print(f"{name}: {'configured' if configured else 'missing'}")
+    return 0
+
+
+def cmd_login(settings: Settings) -> int:
+    browser = BrowserSession(settings)
+    browser.start()
+    try:
+        browser.navigate(settings.base_url)
+        print("Chrome opened with a persistent local QA profile.")
+        print("Log in to MySANA manually. Do not paste credentials into the project or .env.")
+        input("Press Enter here after the login is complete...")
+        print(f"Current URL: {browser.current_url()}")
+    finally:
+        browser.close()
+    return 0
+
+
+def cmd_inspect(settings: Settings, url: str | None) -> int:
+    browser = BrowserSession(settings)
+    browser.start()
+    try:
+        browser.navigate(url or settings.base_url)
+        input("Navigate to the target form in Chrome, then press Enter here to inspect it...")
+        print(json.dumps(browser.snapshot_interactive(120), ensure_ascii=False, indent=2))
+    finally:
+        browser.close()
+    return 0
+
+
+def cmd_workflow(settings: Settings, workflow: Path) -> int:
+    browser = BrowserSession(settings)
+    browser.start()
+    try:
+        runner = WorkflowRunner(browser, settings.evidence_dir)
+        report = runner.run_file(workflow)
+        print(f"Report: {report.output_dir / 'report.md'}")
+    finally:
+        browser.close()
+    return 0
+
+
+def cmd_agent(settings: Settings, goal: str, url: str | None) -> int:
+    browser = BrowserSession(settings)
+    provider = ProviderRouter(settings)
+    browser.start()
+    try:
+        browser.navigate(url or settings.base_url)
+        input("Navigate/login if needed, then press Enter to let the constrained QA agent start...")
+        runner = AgentRunner(browser, provider, settings)
+        report = runner.run(goal)
+        print(f"Report: {report.output_dir / 'report.md'}")
+    finally:
+        browser.close()
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="mysana-qa", description="Constrained QA browser agent for MySANA")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("doctor", help="Validate local configuration and provider keys")
+    sub.add_parser("login", help="Open the persistent Chrome profile for manual login")
+
+    inspect = sub.add_parser("inspect", help="Inspect visible interactive elements on the current page")
+    inspect.add_argument("--url")
+
+    workflow = sub.add_parser("workflow", help="Run a deterministic JSON QA workflow")
+    workflow.add_argument("file", type=Path)
+
+    agent = sub.add_parser("agent", help="Run the constrained agent for an exploratory QA goal")
+    agent.add_argument("goal")
+    agent.add_argument("--url")
+    return parser
+
+
+def main() -> int:
+    configure_logging()
+    settings = Settings.from_env()
+    args = build_parser().parse_args()
+
+    if args.command == "doctor":
+        return cmd_doctor(settings)
+    if args.command == "login":
+        return cmd_login(settings)
+    if args.command == "inspect":
+        return cmd_inspect(settings, args.url)
+    if args.command == "workflow":
+        return cmd_workflow(settings, args.file)
+    if args.command == "agent":
+        return cmd_agent(settings, args.goal, args.url)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
