@@ -189,6 +189,32 @@ Rejeitar | Aprovar e executar
 
 Passwords nunca aparecem no painel de aprovação; apenas o comprimento do valor secreto.
 
+### Trace operacional e correcções em tempo real
+
+Durante a execução, o dashboard mostra **O que o agente está a fazer**:
+
+- fase actual: observar, analisar, decidir, executar, verificar ou recuperar;
+- passo actual;
+- tempo decorrido na fase;
+- modelo/provider em uso;
+- observação curta;
+- próxima acção proposta;
+- justificação curta;
+- confiança indicada pelo modelo.
+
+Isto é um resumo operacional observável, não o raciocínio interno oculto do modelo.
+
+Enquanto o agente está em execução, podes usar **Corrigir agente agora**. A mensagem entra no próximo ciclo de decisão e tem prioridade sobre o plano inicial. Por defeito, se existir uma acção pendente à espera de aprovação, essa acção é rejeitada automaticamente para forçar uma nova observação.
+
+Exemplo:
+
+```text
+Não cliques nesse botão.
+Abre primeiro Feiras e Eventos e procura o processo actual.
+```
+
+O botão **Parar agente** impede novas acções. Se já existir uma chamada ao modelo em curso, essa chamada pode precisar de terminar antes de a paragem/correcção ser aplicada, mas nenhuma proposta antiga é executada depois de uma correcção recebida durante essa análise.
+
 ### Aprovar sempre por tipo
 
 No pedido de aprovação existem três opções:
