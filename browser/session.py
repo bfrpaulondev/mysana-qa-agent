@@ -11,6 +11,10 @@ from browser.policy import BrowserPolicy
 from core.settings import Settings
 
 
+class ActionRejected(RuntimeError):
+    pass
+
+
 _VISUAL_OVERLAY_JS = r"""
 (() => {
   const ROOT_ID = "__mysana_qa_visual_root";
@@ -146,6 +150,7 @@ class BrowserSession:
         self,
         settings: Settings,
         event_callback: Callable[[dict[str, Any]], None] | None = None,
+        approval_callback: Callable[[dict[str, Any]], bool] | None = None,
     ):
         self.settings = settings
         self.policy = BrowserPolicy(
@@ -154,6 +159,7 @@ class BrowserSession:
         )
         self.driver = None
         self.event_callback = event_callback
+        self.approval_callback = approval_callback
         self.browser_label = "Chromium"
         self._event_id = 0
 
@@ -313,21 +319,45 @@ class BrowserSession:
 
         if username_selector:
             username_element = self._find(username_selector)
-            self._type_visible(username_element, username, "ESCREVER UTILIZADOR", secret=False)
+            self._type_visible(
+                username_element,
+                username,
+                "ESCREVER UTILIZADOR",
+                secret=False,
+                approval_target=username_selector,
+            )
 
         if not password_selector:
             raise RuntimeError("Campo de password não encontrado.")
 
         password_element = self._find(password_selector)
-        self._type_visible(password_element, password, "ESCREVER PASSWORD", secret=True)
+        self._type_visible(
+            password_element,
+            password,
+            "ESCREVER PASSWORD",
+            secret=True,
+            approval_target=password_selector,
+        )
 
         if submit_selector:
             submit = self._find(submit_selector)
-            self._click_visible(submit, "CLICAR EM ENTRAR", enforce_policy=False)
+            self._click_visible(
+                submit,
+                "CLICAR EM ENTRAR",
+                enforce_policy=False,
+                approval_target=submit_selector,
+            )
         else:
             from selenium.webdriver.common.keys import Keys
 
             self._visual_focus(password_element, "PREMIR ENTER", "#77B9FF")
+            self._require_approval(
+                action="keypress",
+                label="Premir Enter para submeter o login",
+                target=password_selector or "password",
+                value_preview="Enter",
+                secret=False,
+            )
             password_element.send_keys(Keys.ENTER)
             self._visual_pulse()
             self._emit("keyboard", "Enter enviado para o formulário de login")
@@ -474,12 +504,22 @@ class BrowserSession:
                 or ""
             )
             self.policy.ensure_click_allowed(target_text)
-            self._click_visible(element, f"CLICAR — {target_text[:60] or selector}")
+            self._click_visible(
+                element,
+                f"CLICAR — {target_text[:60] or selector}",
+                approval_target=selector,
+            )
             return f"Clicked {selector} ({target_text[:80]!r})"
 
         if action_type == "fill":
             value = str(action.get("value", ""))
-            self._type_visible(element, value, f"ESCREVER — {selector}", secret=False)
+            self._type_visible(
+                element,
+                value,
+                f"ESCREVER — {selector}",
+                secret=False,
+                approval_target=selector,
+            )
             return f"Filled {selector}"
 
         if action_type == "select":
@@ -487,6 +527,13 @@ class BrowserSession:
 
             value = str(action.get("value", ""))
             self._visual_focus(element, f"SELECCIONAR — {value[:60]}", "#77B9FF")
+            self._require_approval(
+                action="select",
+                label=f"Seleccionar {value[:80]}",
+                target=selector,
+                value_preview=value[:120],
+                secret=False,
+            )
             select = Select(element)
             by = str(action.get("by", "visible_text")).lower()
             if by == "value":
@@ -502,7 +549,13 @@ class BrowserSession:
     def snapshot_json(self, max_elements: int = 100) -> str:
         return json.dumps(self.snapshot_interactive(max_elements), ensure_ascii=False, indent=2)
 
-    def _click_visible(self, element, label: str, enforce_policy: bool = True) -> None:
+    def _click_visible(
+        self,
+        element,
+        label: str,
+        enforce_policy: bool = True,
+        approval_target: str | None = None,
+    ) -> None:
         from selenium.webdriver.common.action_chains import ActionChains
 
         if enforce_policy:
@@ -515,6 +568,20 @@ class BrowserSession:
             self.policy.ensure_click_allowed(target_text)
 
         self._visual_focus(element, label, "#7CFFB2")
+        target_text = (
+            element.text
+            or element.get_attribute("value")
+            or element.get_attribute("aria-label")
+            or approval_target
+            or "element"
+        )
+        self._require_approval(
+            action="click",
+            label=label,
+            target=approval_target or str(target_text)[:160],
+            value_preview=None,
+            secret=False,
+        )
         ActionChains(self.driver).move_to_element(element).pause(
             self.settings.visual_action_delay_ms / 1000
         ).click().perform()
@@ -528,10 +595,25 @@ class BrowserSession:
         except Exception:
             raise
 
-    def _type_visible(self, element, value: str, label: str, secret: bool) -> None:
+    def _type_visible(
+        self,
+        element,
+        value: str,
+        label: str,
+        secret: bool,
+        approval_target: str | None = None,
+    ) -> None:
         from selenium.webdriver.common.keys import Keys
 
         self._visual_focus(element, label, "#77B9FF")
+        self._require_approval(
+            action="write",
+            label=label,
+            target=approval_target or "input",
+            value_preview=None if secret else value[:120],
+            secret=secret,
+            value_length=len(value),
+        )
         element.click()
         element.send_keys(Keys.CONTROL, "a")
         element.send_keys(Keys.BACKSPACE)
@@ -545,6 +627,40 @@ class BrowserSession:
             "keyboard",
             "Password introduzida" if secret else "Texto introduzido",
         )
+
+    def _require_approval(
+        self,
+        action: str,
+        label: str,
+        target: str,
+        value_preview: str | None,
+        secret: bool,
+        value_length: int | None = None,
+    ) -> None:
+        if self.approval_callback is None:
+            return
+
+        self._visual_status("AGUARDAR APROVAÇÃO NO DASHBOARD", "#FFD66B")
+        request = {
+            "action": action,
+            "label": label,
+            "target": target,
+            "secret": secret,
+            "value_preview": None if secret else value_preview,
+            "value_length": value_length,
+            "url": self.current_url(),
+            "title": self.page_title(),
+        }
+        self._emit("approval", f"A aguardar aprovação: {label}")
+
+        approved = self.approval_callback(request)
+        if not approved:
+            self._visual_status("ACÇÃO REJEITADA PELO UTILIZADOR", "#FF8D8D")
+            self._emit("approval", f"Acção rejeitada: {label}")
+            raise ActionRejected(f"Acção rejeitada pelo utilizador: {label}")
+
+        self._visual_status("APROVADO — A EXECUTAR", "#7CFFB2")
+        self._emit("approval", f"Acção aprovada: {label}")
 
     def _visual_focus(self, element, label: str, color: str) -> None:
         self._install_visual_overlay()
