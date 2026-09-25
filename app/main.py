@@ -69,21 +69,38 @@ def cmd_providers_test(settings: Settings) -> int:
 
 
 def cmd_dashboard(settings: Settings, port: int) -> int:
+    import socket
     import threading
     import webbrowser
 
     import uvicorn
 
-    from dashboard.server import create_app
+    from dashboard.server import DASHBOARD_VERSION, create_app
 
-    url = f"http://127.0.0.1:{port}"
-    print(f"MySANA QA Dashboard: {url}")
+    host = "127.0.0.1"
+    url = f"http://{host}:{port}"
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.25)
+        port_in_use = probe.connect_ex((host, port)) == 0
+
+    if port_in_use:
+        print("")
+        print(f"ERRO: a porta {port} já está ocupada.")
+        print("Isto normalmente significa que ficou um dashboard antigo em execução.")
+        print("Fecha o terminal/processo antigo com Ctrl+C e volta a executar este comando.")
+        print(f"Em alternativa: python -m app.main dashboard --port {port + 1}")
+        print("")
+        print("O browser NÃO será aberto para evitar mostrar uma versão antiga por engano.")
+        return 2
+
+    print(f"MySANA QA Dashboard {DASHBOARD_VERSION}: {url}")
     print("O dashboard é servido apenas em localhost.")
 
     threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     uvicorn.run(
         create_app(settings),
-        host="127.0.0.1",
+        host=host,
         port=port,
         log_level="warning",
     )
