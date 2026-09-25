@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from browser.session import BrowserSession
 from core.provider_router import ProviderRouter
@@ -17,12 +19,13 @@ from qa.reporter import RunReport, StepResult
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-class DashboardRuntime:
-    """In-process state shared by the local dashboard API.
+class LoginPayload(BaseModel):
+    username: str = Field(default="", max_length=512)
+    password: str = Field(min_length=1, max_length=2048)
 
-    The dashboard binds to localhost only. API keys remain in the local .env
-    and are never included in API responses.
-    """
+
+class DashboardRuntime:
+    """Local runtime for the visual Computer Use style dashboard."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -31,6 +34,24 @@ class DashboardRuntime:
         self.lock = threading.RLock()
         self.last_provider_tests: list[dict[str, Any]] = []
         self.last_test: dict[str, Any] | None = None
+        self.activity: list[dict[str, Any]] = []
+        self.test_running = False
+        self.login_required = False
+
+    def _on_browser_event(self, event: dict[str, Any]) -> None:
+        with self.lock:
+            self.activity.append(event)
+            self.activity = self.activity[-80:]
+
+    def _add_activity(self, action: str, message: str) -> None:
+        self._on_browser_event(
+            {
+                "id": int(time.time() * 1000),
+                "action": action,
+                "message": message,
+                "timestamp": time.time(),
+            }
+        )
 
     def provider_status(self) -> list[dict[str, Any]]:
         configured = self.provider.provider_status()
@@ -74,28 +95,55 @@ class DashboardRuntime:
 
     def session_status(self) -> dict[str, Any]:
         with self.lock:
-            if self.browser is None or self.browser.driver is None:
-                return {
-                    "state": "closed",
-                    "url": None,
-                    "title": None,
-                    "message": "Chrome QA ainda não foi aberto.",
-                }
+            browser = self.browser
+            running = self.test_running
 
-            try:
-                return {
-                    "state": "open",
-                    "url": self.browser.current_url(),
-                    "title": self.browser.page_title(),
-                    "message": "Sessão Chrome QA aberta.",
-                }
-            except Exception as exc:
-                return {
-                    "state": "error",
-                    "url": None,
-                    "title": None,
-                    "message": f"{type(exc).__name__}: {exc}",
-                }
+        if browser is None or browser.driver is None:
+            return {
+                "state": "closed",
+                "url": None,
+                "title": None,
+                "browser": "Chromium",
+                "login_required": False,
+                "message": "Chromium QA ainda não foi aberto.",
+            }
+
+        try:
+            url = browser.current_url()
+            title = browser.page_title()
+
+            if not running:
+                try:
+                    login = browser.detect_login_form()
+                    with self.lock:
+                        self.login_required = bool(login.get("required"))
+                except Exception:
+                    pass
+
+            with self.lock:
+                login_required = self.login_required
+
+            return {
+                "state": "open",
+                "url": url,
+                "title": title,
+                "browser": browser.browser_label,
+                "login_required": login_required,
+                "message": (
+                    "Login necessário — introduz as credenciais no dashboard."
+                    if login_required
+                    else "Chromium QA aberto e controlado pelo agente."
+                ),
+            }
+        except Exception as exc:
+            return {
+                "state": "error",
+                "url": None,
+                "title": None,
+                "browser": browser.browser_label,
+                "login_required": False,
+                "message": f"{type(exc).__name__}: {exc}",
+            }
 
     def open_session(self) -> dict[str, Any]:
         with self.lock:
@@ -109,19 +157,65 @@ class DashboardRuntime:
                 except Exception:
                     pass
 
-            self.browser = BrowserSession(self.settings)
-            self.browser.start()
-            self.browser.navigate(self.settings.base_url)
-            return self.session_status()
+            self.activity = []
+            self.login_required = False
+            self.browser = BrowserSession(
+                self.settings,
+                event_callback=self._on_browser_event,
+            )
+            browser = self.browser
+
+        browser.start()
+        browser.navigate(self.settings.base_url)
+
+        login = browser.detect_login_form()
+        with self.lock:
+            self.login_required = bool(login.get("required"))
+
+        if self.login_required:
+            self._add_activity("login", "Formulário de login detectado — aguardar credenciais do utilizador")
+        else:
+            self._add_activity("session", "MySANA aberto sem formulário de login visível")
+
+        return self.session_status()
+
+    def submit_login(self, username: str, password: str) -> dict[str, Any]:
+        with self.lock:
+            browser = self.browser
+
+        if browser is None or browser.driver is None:
+            raise RuntimeError("Abre primeiro a sessão Chromium/MySANA.")
+
+        self._add_activity("login", "Credenciais recebidas localmente — a simular teclado no Chromium")
+        result = browser.submit_login(username, password)
+
+        with self.lock:
+            self.login_required = bool(result.get("login_required"))
+
+        if self.login_required:
+            self._add_activity("login", "O formulário de login continua visível")
+        else:
+            self._add_activity("login", "Login submetido e formulário de password deixou de estar visível")
+
+        # username/password are intentionally not stored on runtime/state/reports.
+        return {
+            "submitted": True,
+            "login_required": self.login_required,
+            "url": result.get("url"),
+            "title": result.get("title"),
+        }
 
     def close_session(self) -> dict[str, Any]:
         with self.lock:
-            if self.browser is not None:
-                try:
-                    self.browser.close()
-                finally:
-                    self.browser = None
-            return self.session_status()
+            browser = self.browser
+            self.browser = None
+            self.login_required = False
+
+        if browser is not None:
+            browser.close()
+
+        self._add_activity("session", "Sessão Chromium fechada")
+        return self.session_status()
 
     def test_free_providers(self) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
@@ -129,6 +223,7 @@ class DashboardRuntime:
             if model.startswith("openai/"):
                 continue
 
+            self._add_activity("provider", f"A testar {model}")
             probe = self.provider.probe_model(model)
             results.append(
                 {
@@ -139,70 +234,118 @@ class DashboardRuntime:
                     "error": probe.error,
                 }
             )
+            self._add_activity(
+                "provider",
+                f"{model}: {'PASS' if probe.ok else 'FAIL'} ({probe.latency_ms} ms)",
+            )
 
         self.last_provider_tests = results
         return results
 
-    def run_read_only_test(self) -> dict[str, Any]:
+    def start_visual_test(self) -> dict[str, Any]:
         with self.lock:
             if self.browser is None or self.browser.driver is None:
                 raise RuntimeError("Abre primeiro a sessão MySANA no dashboard.")
+            if self.login_required:
+                raise RuntimeError("Conclui primeiro o login no MySANA.")
+            if self.test_running:
+                raise RuntimeError("Já existe um teste visual em execução.")
 
-            report = RunReport("dashboard-readonly", self.settings.evidence_dir)
-            try:
-                url = self.browser.current_url()
-                title = self.browser.page_title()
-                elements = self.browser.snapshot_interactive(max_elements=150)
-                screenshot = self.browser.screenshot(report.screenshot_path(1))
+            self.test_running = True
+            self.last_test = {
+                "ok": None,
+                "status": "RUNNING",
+                "message": "Inspecção visual em execução no Chromium.",
+            }
 
-                report.add(
-                    StepResult(
-                        1,
-                        "read-only-inspection",
-                        "PASS",
-                        f"Página lida sem alterações: {len(elements)} elementos interactivos.",
-                        screenshot=screenshot,
-                        data={
-                            "url": url,
-                            "title": title,
-                            "interactive_elements": len(elements),
-                        },
-                    )
+        thread = threading.Thread(target=self._run_visual_test_worker, daemon=True)
+        thread.start()
+        return {"started": True, "message": "Teste visual iniciado no Chromium."}
+
+    def _run_visual_test_worker(self) -> None:
+        with self.lock:
+            browser = self.browser
+
+        if browser is None:
+            return
+
+        report = RunReport("dashboard-visual-readonly", self.settings.evidence_dir)
+        self._add_activity("test", "A iniciar smoke test visual read-only")
+
+        try:
+            url = browser.current_url()
+            title = browser.page_title()
+            elements = browser.snapshot_interactive(max_elements=150)
+            inspected = browser.visual_inspect(limit=min(10, len(elements)))
+            screenshot = browser.screenshot(report.screenshot_path(1))
+
+            report.add(
+                StepResult(
+                    1,
+                    "visual-read-only-inspection",
+                    "PASS",
+                    (
+                        f"Página inspeccionada visualmente sem alterações: "
+                        f"{len(elements)} elementos interactivos, {len(inspected)} destacados."
+                    ),
+                    screenshot=screenshot,
+                    data={
+                        "url": url,
+                        "title": title,
+                        "interactive_elements": len(elements),
+                        "visually_inspected": len(inspected),
+                    },
                 )
-                report.save()
+            )
+            report.save()
 
-                result = {
-                    "ok": True,
-                    "status": "PASS",
-                    "url": url,
-                    "title": title,
-                    "interactive_elements": len(elements),
-                    "report_dir": str(report.output_dir),
-                    "message": "Smoke test read-only concluído sem clicar ou preencher campos.",
-                }
-                self.last_test = result
-                return result
-            except Exception as exc:
-                report.add(
-                    StepResult(
-                        1,
-                        "read-only-inspection",
-                        "FAIL",
-                        f"{type(exc).__name__}: {exc}",
-                    )
+            result = {
+                "ok": True,
+                "status": "PASS",
+                "url": url,
+                "title": title,
+                "interactive_elements": len(elements),
+                "visually_inspected": len(inspected),
+                "report_dir": str(report.output_dir),
+                "message": "Teste visual concluído sem cliques, preenchimentos ou gravações.",
+            }
+            self._add_activity("test", "Smoke test visual concluído: PASS")
+        except Exception as exc:
+            report.add(
+                StepResult(
+                    1,
+                    "visual-read-only-inspection",
+                    "FAIL",
+                    f"{type(exc).__name__}: {exc}",
                 )
-                report.save()
-                result = {
-                    "ok": False,
-                    "status": "FAIL",
-                    "url": None,
-                    "title": None,
-                    "interactive_elements": None,
-                    "report_dir": str(report.output_dir),
-                    "message": f"{type(exc).__name__}: {exc}",
-                }
+            )
+            report.save()
+            result = {
+                "ok": False,
+                "status": "FAIL",
+                "url": None,
+                "title": None,
+                "interactive_elements": None,
+                "visually_inspected": None,
+                "report_dir": str(report.output_dir),
+                "message": f"{type(exc).__name__}: {exc}",
+            }
+            self._add_activity("test", f"Smoke test visual falhou: {type(exc).__name__}")
+        finally:
+            with self.lock:
                 self.last_test = result
-                return result
+                self.test_running = False
+
+    def status_payload(self) -> dict[str, Any]:
+        return {
+            "providers": self.provider_status(),
+            "session": self.session_status(),
+            "last_test": self.last_test,
+            "test_running": self.test_running,
+            "activity": list(self.activity[-40:]),
+            "paid_fallback_enabled": self.settings.enable_paid_fallback,
+            "safe_mode": not self.settings.allow_dangerous_actions,
+        }
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -211,7 +354,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="MySANA QA Agent",
-        version="0.2.0",
+        version="0.3.0",
         docs_url=None,
         redoc_url=None,
     )
@@ -225,13 +368,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/status")
     def api_status() -> dict[str, Any]:
-        return {
-            "providers": runtime.provider_status(),
-            "session": runtime.session_status(),
-            "last_test": runtime.last_test,
-            "paid_fallback_enabled": resolved_settings.enable_paid_fallback,
-            "safe_mode": not resolved_settings.allow_dangerous_actions,
-        }
+        return runtime.status_payload()
 
     @app.post("/api/providers/test")
     def api_test_providers() -> dict[str, Any]:
@@ -244,6 +381,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
 
+    @app.post("/api/session/login")
+    def api_session_login(payload: LoginPayload) -> dict[str, Any]:
+        try:
+            return runtime.submit_login(payload.username, payload.password)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
+
     @app.post("/api/session/close")
     def api_close_session() -> dict[str, Any]:
         try:
@@ -254,7 +398,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/tests/start")
     def api_start_test() -> dict[str, Any]:
         try:
-            return runtime.run_read_only_test()
+            return runtime.start_visual_test()
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
 
