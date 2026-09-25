@@ -170,6 +170,56 @@ class ProviderRouter:
                 error=f"{type(exc).__name__}: {exc}",
             )
 
+    def vision_completion(
+        self,
+        prompt: str,
+        image_base64: str,
+        mime_type: str = "image/png",
+    ) -> CompletionResult:
+        model = self.settings.vision_model
+        if not self._has_credentials(model):
+            raise AllProvidersFailed(
+                f"Vision model credentials are not configured for {model}."
+            )
+
+        if self.calls_used >= self.settings.max_llm_calls_per_task:
+            raise LlmBudgetExceeded(
+                f"LLM call budget exceeded ({self.settings.max_llm_calls_per_task} calls)."
+            )
+
+        self.calls_used += 1
+        try:
+            response = self._litellm_completion(
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{mime_type};base64,{image_base64}"
+                                },
+                            },
+                        ],
+                    }
+                ],
+                max_tokens=self.settings.llm_max_output_tokens,
+            )
+            content = response.choices[0].message.content
+            if not content:
+                raise RuntimeError("Vision model returned empty content")
+            return CompletionResult(
+                content=content,
+                model=model,
+                attempts=[model],
+            )
+        except Exception as exc:
+            raise AllProvidersFailed(
+                f"Vision model failed ({model}): {type(exc).__name__}: {exc}"
+            ) from exc
+
     def completion(self, messages: list[dict[str, str]]) -> CompletionResult:
         if self.calls_used >= self.settings.max_llm_calls_per_task:
             raise LlmBudgetExceeded(
