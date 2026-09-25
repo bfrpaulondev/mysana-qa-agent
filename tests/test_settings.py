@@ -12,8 +12,29 @@ class SettingsTests(unittest.TestCase):
             settings = Settings.from_env()
 
         self.assertTrue(settings.prefer_openai)
+        self.assertTrue(settings.use_native_computer)
+        self.assertEqual(settings.computer_model, "gpt-5.6-sol")
+        self.assertEqual(settings.computer_reasoning_effort, "low")
         self.assertEqual(settings.vision_model, "openai/gpt-5.6-luna")
         self.assertEqual(settings.llm_models[0], "openai/gpt-5.6-luna")
+
+    def test_native_computer_settings_can_be_overridden(self):
+        with patch.dict(
+            os.environ,
+            {
+                "QA_USE_NATIVE_COMPUTER": "false",
+                "QA_COMPUTER_MODEL": "gpt-5.6-luna",
+                "QA_COMPUTER_REASONING_EFFORT": "medium",
+                "QA_COMPUTER_MAX_TURNS": "12",
+            },
+            clear=True,
+        ):
+            settings = Settings.from_env()
+
+        self.assertFalse(settings.use_native_computer)
+        self.assertEqual(settings.computer_model, "gpt-5.6-luna")
+        self.assertEqual(settings.computer_reasoning_effort, "medium")
+        self.assertEqual(settings.computer_max_turns, 12)
 
     def test_legacy_env_is_reordered_when_openai_preference_is_on(self):
         with patch.dict(
