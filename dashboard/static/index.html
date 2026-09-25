@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MySANA QA Agent</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Local QA Control Center</p>
+        <h1>MySANA QA Agent</h1>
+        <p class="subtitle">Providers, sessão MySANA e testes seguros num único painel.</p>
+      </div>
+      <div class="top-status">
+        <span id="safetyBadge" class="badge badge-safe">Modo seguro</span>
+        <span id="refreshState" class="muted">A actualizar…</span>
+      </div>
+    </header>
+
+    <section class="grid providers-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">LLM Router</p>
+          <h2>Providers</h2>
+        </div>
+        <button id="testProvidersButton" class="button button-secondary">Testar providers</button>
+      </div>
+      <div id="providersGrid" class="provider-grid"></div>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="panel session-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Browser controlado</p>
+            <h2>Sessão MySANA</h2>
+          </div>
+          <span id="sessionBadge" class="badge badge-neutral">Fechada</span>
+        </div>
+
+        <div class="session-body">
+          <div class="session-icon" aria-hidden="true">M</div>
+          <div class="session-copy">
+            <strong id="sessionTitle">Chrome QA ainda não foi aberto</strong>
+            <span id="sessionUrl" class="muted">mysana.sanahotels.com</span>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="openSessionButton" class="button button-primary">Abrir MySANA</button>
+          <button id="closeSessionButton" class="button button-ghost">Fechar sessão</button>
+        </div>
+
+        <p class="hint">
+          O login é feito manualmente no Chrome separado do agente. Passwords e cookies não passam pela interface.
+        </p>
+      </article>
+
+      <article class="panel test-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Primeiro workflow</p>
+            <h2>Teste read-only</h2>
+          </div>
+          <span class="badge badge-safe">Sem alterações</span>
+        </div>
+
+        <p class="test-description">
+          Analisa a página actualmente aberta, conta os elementos interactivos, guarda screenshot e gera relatório.
+          Não clica, não preenche e não grava.
+        </p>
+
+        <div class="guard-list">
+          <div><span class="guard-dot"></span> Não apagar</div>
+          <div><span class="guard-dot"></span> Não aprovar</div>
+          <div><span class="guard-dot"></span> Não preencher</div>
+          <div><span class="guard-dot"></span> Capturar evidência</div>
+        </div>
+
+        <button id="startTestButton" class="button button-run" disabled>Iniciar teste</button>
+      </article>
+    </section>
+
+    <section class="panel execution-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Última execução</p>
+          <h2>Resultado</h2>
+        </div>
+        <span id="testBadge" class="badge badge-neutral">Sem execução</span>
+      </div>
+
+      <div id="emptyExecution" class="empty-state">
+        Abre o MySANA e inicia o primeiro teste read-only.
+      </div>
+
+      <div id="testResult" class="result-grid hidden">
+        <div class="metric">
+          <span class="metric-label">Página</span>
+          <strong id="resultTitle">—</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Elementos interactivos</span>
+          <strong id="resultElements">—</strong>
+        </div>
+        <div class="metric metric-wide">
+          <span class="metric-label">Relatório local</span>
+          <strong id="resultReport">—</strong>
+        </div>
+      </div>
+    </section>
+
+    <div id="toast" class="toast hidden" role="status"></div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
