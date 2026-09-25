@@ -18,6 +18,7 @@ from qa.reporter import RunReport, StepResult
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+DASHBOARD_VERSION = "0.5.0-computer-use"
 
 
 class LoginPayload(BaseModel):
@@ -416,6 +417,7 @@ class DashboardRuntime:
 
     def status_payload(self) -> dict[str, Any]:
         return {
+            "version": DASHBOARD_VERSION,
             "providers": self.provider_status(),
             "session": self.session_status(),
             "last_test": self.last_test,
@@ -433,12 +435,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="MySANA QA Agent",
-        version="0.4.0",
+        version=DASHBOARD_VERSION,
         docs_url=None,
         redoc_url=None,
     )
 
     app.state.runtime = runtime
+
+    @app.middleware("http")
+    async def disable_dashboard_cache(request, call_next):
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/") or request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/")
