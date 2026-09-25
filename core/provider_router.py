@@ -40,8 +40,9 @@ class ProviderProbe:
 class ProviderRouter:
     """Small provider router inspired by AgenticSeek's provider abstraction.
 
-    Free providers are tried first. OpenAI is skipped unless paid fallback is
-    explicitly enabled. This avoids accidental API spend during repetitive QA.
+    The configured model order is authoritative. OpenAI may be used as the
+    primary provider; QA_ENABLE_PAID_FALLBACK only gates OpenAI when it is
+    configured later in the chain as a fallback.
     """
 
     def __init__(self, settings: Settings):
@@ -98,8 +99,15 @@ class ProviderRouter:
 
         return {}
 
+    def _openai_is_primary(self, model: str) -> bool:
+        if not model.startswith("openai/"):
+            return False
+        text_primary = bool(self.settings.llm_models) and self.settings.llm_models[0] == model
+        vision_primary = self.settings.vision_model == model
+        return text_primary or vision_primary
+
     def _is_paid_fallback(self, model: str) -> bool:
-        return model.startswith("openai/")
+        return model.startswith("openai/") and not self._openai_is_primary(model)
 
     def _litellm_completion(
         self,
@@ -263,8 +271,8 @@ class ProviderRouter:
 
         if not attempts:
             raise AllProvidersFailed(
-                "No configured LLM provider is available. Add GROQ_API_KEY or NVIDIA_NIM_API_KEY. "
-                "OpenAI is disabled by default to prevent accidental spend."
+                "No configured LLM provider is available. Configure OPENAI_API_KEY, "
+                "GROQ_API_KEY or NVIDIA_NIM_API_KEY for at least one model in the chain."
             )
 
         raise AllProvidersFailed("All configured LLM providers failed: " + " | ".join(errors))
