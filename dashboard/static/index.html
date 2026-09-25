@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MySANA QA Agent</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Visual Computer Use</p>
+        <h1>MySANA QA Agent</h1>
+        <p class="subtitle">Vê o Chromium navegar, mover o cursor, escrever e executar cada passo.</p>
+      </div>
+      <div class="top-status">
+        <span id="buildBadge" class="badge badge-neutral">build —</span>
+        <span id="safetyBadge" class="badge badge-safe">Modo seguro</span>
+        <span id="refreshState" class="muted">A actualizar…</span>
+      </div>
+    </header>
+
+    <section class="grid providers-section">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">LLM Router</p>
+          <h2>Providers</h2>
+        </div>
+        <button id="testProvidersButton" class="button button-secondary">Testar providers</button>
+      </div>
+      <div id="providersGrid" class="provider-grid"></div>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="panel session-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Browser visível</p>
+            <h2>Sessão Chromium / MySANA</h2>
+          </div>
+          <span id="sessionBadge" class="badge badge-neutral">Fechada</span>
+        </div>
+
+        <div class="session-body">
+          <div class="session-icon" aria-hidden="true">C</div>
+          <div class="session-copy">
+            <strong id="sessionTitle">Chromium QA ainda não foi aberto</strong>
+            <span id="sessionUrl" class="muted">mysana.sanahotels.com</span>
+            <span id="browserName" class="browser-name">Chromium</span>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="openSessionButton" class="button button-primary">Abrir Chromium e ir ao MySANA</button>
+          <button id="closeSessionButton" class="button button-ghost">Fechar sessão</button>
+        </div>
+
+        <p class="hint">
+          O agente abre uma janela Chromium visível. Cada alvo recebe uma borda forte e um cursor virtual mostra onde o agente vai actuar.
+        </p>
+      </article>
+
+      <article class="panel command-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Agent Chat</p>
+            <h2>Diz ao agente o que queres fazer</h2>
+          </div>
+          <span class="badge badge-safe">Planeia antes de agir</span>
+        </div>
+
+        <div id="chatMessages" class="chat-messages">
+          <div class="chat-message chat-agent">
+            <span class="chat-role">Agente</span>
+            <p>Abre o Chromium, navega até ao ecrã pretendido e escreve aqui a tarefa. Primeiro vou gerar o plano; nada será executado nessa fase.</p>
+          </div>
+        </div>
+
+        <form id="agentCommandForm" class="chat-composer">
+          <textarea
+            id="agentCommand"
+            rows="3"
+            maxlength="4000"
+            placeholder="Ex.: Entra nas despesas e testa os campos obrigatórios sem gravar nem apagar nada."
+          ></textarea>
+          <button id="planAgentButton" class="button button-primary" type="submit" disabled>Gerar plano</button>
+        </form>
+
+        <p class="hint">
+          O plano é uma pré-visualização. A execução usa OpenAI Computer Use nativo, que recebe a screenshot actual e volta a observar após as acções.
+        </p>
+      </article>
+    </section>
+
+    <section id="planPanel" class="panel plan-panel hidden">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Plano proposto</p>
+          <h2 id="planSummary">—</h2>
+        </div>
+        <div class="plan-badges">
+          <span id="planModelBadge" class="badge badge-neutral">planner —</span>
+          <span id="computerEngineBadge" class="badge badge-pass">execução —</span>
+        </div>
+      </div>
+
+      <ol id="planSteps" class="plan-steps"></ol>
+
+      <div class="plan-actions">
+        <span class="hint">O plano é provisório: o agente reavalia a página depois de cada acção.</span>
+        <button id="executePlanButton" class="button button-run" type="button">Executar plano</button>
+      </div>
+    </section>
+
+    <section id="agentMonitorPanel" class="panel agent-monitor-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Live agent trace</p>
+          <h2>O que o agente está a fazer</h2>
+        </div>
+        <span id="agentPhaseBadge" class="badge badge-neutral">EM ESPERA</span>
+      </div>
+
+      <div class="agent-monitor-grid">
+        <div class="agent-monitor-metric">
+          <span class="metric-label">Passo</span>
+          <strong id="agentStep">—</strong>
+        </div>
+        <div class="agent-monitor-metric">
+          <span class="metric-label">Tempo nesta fase</span>
+          <strong id="agentElapsed">0s</strong>
+        </div>
+        <div class="agent-monitor-metric">
+          <span class="metric-label">Modelo / provider</span>
+          <strong id="agentProvider">—</strong>
+        </div>
+        <div class="agent-monitor-metric">
+          <span class="metric-label">Correcções em fila</span>
+          <strong id="agentSteeringCount">0</strong>
+        </div>
+      </div>
+
+      <div class="agent-current-detail">
+        <span class="metric-label">Estado actual</span>
+        <strong id="agentDetail">Agente em espera.</strong>
+      </div>
+
+      <div id="decisionTrace" class="decision-trace hidden">
+        <div>
+          <span class="metric-label">Observação</span>
+          <p id="decisionObservation">—</p>
+        </div>
+        <div>
+          <span class="metric-label">Próxima acção</span>
+          <p id="decisionAction">—</p>
+        </div>
+        <div>
+          <span class="metric-label">Justificação curta</span>
+          <p id="decisionReason">—</p>
+        </div>
+        <div>
+          <span class="metric-label">Confiança</span>
+          <p id="decisionConfidence">—</p>
+        </div>
+      </div>
+
+      <form id="agentSteerForm" class="agent-steer-form">
+        <label class="field">
+          <span>Corrigir agente agora</span>
+          <textarea
+            id="agentSteerMessage"
+            rows="2"
+            maxlength="2000"
+            placeholder="Ex.: Não abras Despesas. Vai primeiro a Feiras e Eventos e procura o processo actual."
+            disabled
+          ></textarea>
+        </label>
+
+        <label class="steer-option">
+          <input id="rejectPendingOnSteer" type="checkbox" checked>
+          <span>Se houver uma acção pendente, rejeitá-la e obrigar o agente a reavaliar.</span>
+        </label>
+
+        <div class="steer-actions">
+          <button id="stopAgentButton" class="button button-reject" type="button" disabled>Parar agente</button>
+          <button id="steerAgentButton" class="button button-secondary" type="submit" disabled>Enviar correcção</button>
+        </div>
+      </form>
+
+      <p class="hint">
+        Este painel mostra um resumo operacional observável — não o raciocínio interno oculto do modelo.
+        Uma correcção enviada durante uma chamada ao modelo é aplicada assim que essa chamada terminar.
+      </p>
+    </section>
+
+    <section id="approvalPanel" class="panel approval-panel hidden">
+      <div class="approval-accent"></div>
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Aprovação necessária</p>
+          <h2>O agente está parado à tua espera</h2>
+        </div>
+        <span id="approvalActionBadge" class="badge badge-warn">PENDENTE</span>
+      </div>
+
+      <div class="approval-body">
+        <div class="approval-main">
+          <span class="metric-label">Acção proposta</span>
+          <strong id="approvalLabel">—</strong>
+          <p id="approvalDescription" class="approval-description">Revê o alvo antes de autorizar.</p>
+        </div>
+
+        <div class="approval-details">
+          <div>
+            <span class="metric-label">Alvo</span>
+            <code id="approvalTarget">—</code>
+          </div>
+          <div>
+            <span class="metric-label">Valor</span>
+            <strong id="approvalValue">—</strong>
+          </div>
+          <div class="approval-wide">
+            <span class="metric-label">Página</span>
+            <span id="approvalPage" class="muted">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="approval-actions">
+        <button id="rejectApprovalButton" class="button button-reject" type="button">Rejeitar</button>
+        <button id="approveApprovalButton" class="button button-secondary" type="button">Aprovar uma vez</button>
+        <button id="approveAlwaysButton" class="button button-always" type="button">Sempre aprovar este tipo</button>
+      </div>
+
+      <p id="approvalHint" class="hint">
+        Nada é clicado, escrito ou seleccionado enquanto esta aprovação estiver pendente.
+      </p>
+    </section>
+
+    <section id="approvalRulesPanel" class="panel approval-rules-panel hidden">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Regras de aprovação activas</p>
+          <h2>Auto-aprovação desta sessão</h2>
+        </div>
+        <span class="badge badge-warn">Só nesta sessão</span>
+      </div>
+
+      <div id="approvalRulesList" class="approval-rules-list"></div>
+      <p class="hint">
+        Estas regras desaparecem ao fechar a sessão Chromium. Passwords e outros valores secretos continuam sempre a pedir aprovação manual.
+      </p>
+    </section>
+
+    <section class="panel activity-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Live</p>
+          <h2>Acções do agente</h2>
+        </div>
+        <span id="activityBadge" class="badge badge-neutral">Em espera</span>
+      </div>
+      <div id="activityFeed" class="activity-feed">
+        <div class="empty-activity">As acções aparecerão aqui enquanto vês o Chromium a trabalhar.</div>
+      </div>
+    </section>
+
+    <section class="panel execution-panel">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Última execução</p>
+          <h2>Resultado</h2>
+        </div>
+        <span id="testBadge" class="badge badge-neutral">Sem execução</span>
+      </div>
+
+      <div id="emptyExecution" class="empty-state">
+        Abre o Chromium, escreve um comando no chat, revê o plano e inicia a execução.
+      </div>
+
+      <div id="testResult" class="result-grid hidden">
+        <div class="metric">
+          <span class="metric-label">Página</span>
+          <strong id="resultTitle">—</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Elementos interactivos</span>
+          <strong id="resultElements">—</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Destacados visualmente</span>
+          <strong id="resultInspected">—</strong>
+        </div>
+        <div class="metric metric-wide">
+          <span class="metric-label">Relatório local</span>
+          <strong id="resultReport">—</strong>
+        </div>
+      </div>
+    </section>
+
+    <div id="loginModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Intervenção necessária</p>
+            <h2>Login MySANA</h2>
+          </div>
+          <span class="badge badge-warn">Local</span>
+        </div>
+
+        <p class="modal-copy">
+          O agente detectou o formulário de login no Chromium. Introduz as credenciais aqui e observa o agente escrever nos campos.
+          Os valores não são gravados em ficheiros, relatórios ou GitHub.
+        </p>
+
+        <form id="loginForm" autocomplete="off">
+          <label class="field">
+            <span>Utilizador</span>
+            <input id="loginUsername" name="username" type="text" autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span>Password</span>
+            <input id="loginPassword" name="password" type="password" autocomplete="new-password" required>
+          </label>
+
+          <div class="modal-actions">
+            <button id="loginSubmitButton" class="button button-primary" type="submit">Escrever no Chromium e entrar</button>
+            <button id="loginCancelButton" class="button button-ghost" type="button">Digitar manualmente no Chromium</button>
+          </div>
+        </form>
+
+        <p class="hint">Se preferires, podes ignorar este modal e escrever directamente na janela Chromium.</p>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden" role="status"></div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

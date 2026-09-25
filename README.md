@@ -1,0 +1,351 @@
+# MySANA QA Agent
+
+Agente local de QA para automatizar tarefas repetitivas no MySANA: navegar, preencher formulários,
+validar workflows, capturar evidências e produzir relatórios PASS/FAIL.
+
+A arquitectura é inspirada no AgenticSeek, mas esta implementação é independente e muito mais pequena,
+pensada especificamente para correr num PC normal sem LLM local pesado.
+
+## Objectivo da v0.1
+
+- Browser Chrome visível e perfil persistente para login manual.
+- `workflow`: testes determinísticos e baratos, sem IA em cada clique.
+- `agent`: exploração limitada com IA quando ainda não existe workflow.
+- Execução interactiva: **OpenAI Computer Use nativo** sobre o Chromium visível.
+- Planner/fallback: **OpenAI → Groq → NVIDIA NIM**.
+- O motor nativo recebe screenshots reais, devolve acções de rato/teclado e recebe uma nova screenshot após as acções.
+- Whitelist de domínios.
+- Bloqueio por defeito de apagar, aprovar, pagar, transferir e rejeitar.
+- Screenshot e relatório Markdown/JSON por execução.
+
+## Modelos
+
+Por defeito, a **execução real** usa:
+
+```env
+QA_USE_NATIVE_COMPUTER=true
+QA_COMPUTER_MODEL=gpt-5.6-sol
+QA_COMPUTER_REASONING_EFFORT=low
+QA_COMPUTER_MAX_TURNS=20
+```
+
+O plano inicial e o fallback continuam com:
+
+1. `openai/gpt-5.6-luna` — planner primário
+2. `groq/openai/gpt-oss-120b` — fallback
+3. `nvidia_nim/z-ai/glm-5.3` — fallback
+
+Assim, o plano pode continuar barato/rápido enquanto a navegação real usa o modelo Computer Use configurado.
+
+`QA_PREFER_OPENAI=true` força esta ordem mesmo se um `.env` antigo ainda tiver Groq/NVIDIA primeiro.
+Se OpenAI não estiver configurada ou falhar no fluxo textual, o router continua para Groq e NVIDIA.
+
+## Configurar Groq + NVIDIA NIM sem expor chaves
+
+Nunca edites `.env.example` com uma chave real.
+
+Cria o teu ficheiro local:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Depois abre **apenas** o ficheiro `.env` e substitui:
+
+```env
+GROQ_API_KEY=YOUR_GROQ_API_KEY_HERE
+NVIDIA_NIM_API_KEY=YOUR_NVIDIA_NIM_API_KEY_HERE
+NVIDIA_NIM_API_BASE=https://integrate.api.nvidia.com/v1
+```
+
+pelas tuas chaves novas/reais localmente:
+
+```env
+GROQ_API_KEY=<chave-local>
+NVIDIA_NIM_API_KEY=<chave-local>
+NVIDIA_NIM_API_BASE=https://integrate.api.nvidia.com/v1
+```
+
+O ficheiro `.env` e variantes como `.env.local` estão no `.gitignore`.
+
+Valida sem mostrar os segredos:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main doctor
+```
+
+Resultado esperado:
+
+```text
+Groq: configured
+NVIDIA NIM: configured
+OpenAI: configured
+Secrets: hidden (doctor never prints API keys)
+```
+
+Depois testa realmente os dois providers com uma chamada mínima a cada um:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main providers-test
+```
+
+Exemplo:
+
+```text
+Provider connectivity test
+One minimal request is sent to each configured provider in routing order.
+PASS | groq/openai/gpt-oss-120b | 420 ms | response='OK'
+PASS | nvidia_nim/z-ai/glm-5.3 | 1250 ms | response='OK'
+Secrets: hidden
+```
+
+O comando nunca imprime as API keys. Os tempos acima são apenas ilustrativos.
+
+`QA_ENABLE_PAID_FALLBACK=false` só bloqueia OpenAI quando ela estiver configurada como fallback.
+Com `QA_PREFER_OPENAI=true`, OpenAI é primária e por isso continua activa.
+
+## Instalação no Windows
+
+Requisitos:
+
+- Python 3.11
+- Google Chrome
+- Uma chave OpenAI para o Computer Use nativo
+- Groq/NVIDIA opcionais como fallback do planner
+
+PowerShell:
+
+```powershell
+.\scripts\setup.ps1
+```
+
+O script cria `.env` a partir de `.env.example` apenas se `.env` ainda não existir.
+
+Depois:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main doctor
+```
+
+## Dashboard visual — Agent Chat + Computer Use
+
+Depois do setup:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main dashboard
+```
+
+Abre localmente em `http://127.0.0.1:8765`.
+
+### Fluxo principal
+
+1. **Abrir Chromium e ir ao MySANA**.
+2. Concluir o login assistido ou manual.
+3. Escrever no **Agent Chat** o objectivo, por exemplo:
+   `Entra nas despesas e testa os campos obrigatórios sem gravar nem apagar nada.`
+4. O planner analisa a página e gera um **plano proposto**.
+5. O plano aparece no chat e em **Acções do agente**.
+6. Só depois de **Executar plano** começa a execução com o **OpenAI Computer Use nativo**.
+7. O ciclo real é:
+   - enviar a screenshot actual com detalhe original;
+   - receber acções estruturadas da ferramenta `computer`;
+   - converter coordenadas da screenshot para o viewport real do Chromium;
+   - mover/destacar o cursor no alvo;
+   - aguardar aprovação quando necessário;
+   - executar rato/teclado;
+   - capturar nova screenshot;
+   - devolvê-la à mesma conversa Responses API para o modelo reavaliar.
+
+O plano inicial é apenas uma previsão. A execução visual não depende de `element_index` nem de selectors DOM para decidir cada clique.
+
+### Motor Computer Use nativo
+
+A execução do dashboard usa a ferramenta `computer` da Responses API quando:
+
+```env
+QA_USE_NATIVE_COMPUTER=true
+OPENAI_API_KEY=<chave-local>
+```
+
+Configuração recomendada para maior capacidade:
+
+```env
+QA_COMPUTER_MODEL=gpt-5.6-sol
+QA_COMPUTER_REASONING_EFFORT=low
+QA_COMPUTER_MAX_TURNS=20
+```
+
+Se quiseres priorizar custo/latência, podes testar:
+
+```env
+QA_COMPUTER_MODEL=gpt-5.6-luna
+```
+
+O dashboard mostra explicitamente **Computer Use · <modelo>** antes da execução. Se o Computer Use nativo estiver desligado ou não houver chave OpenAI, o agente volta ao motor DOM/vision anterior como fallback.
+
+### Visão
+
+O planner visual usa por defeito:
+
+```env
+QA_PREFER_OPENAI=true
+QA_VISION_MODEL=openai/gpt-5.6-luna
+QA_LLM_MODELS=openai/gpt-5.6-luna,groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3
+```
+
+A preferência OpenAI é aplicada mesmo sobre um `.env` antigo. Para voltar a respeitar manualmente a ordem do `.env`, usa `QA_PREFER_OPENAI=false`.
+
+Se a visão OpenAI não estiver disponível, o agente cai para o planeamento DOM/texto usando a cadeia de providers configurada.
+
+### Login
+
+Se o formulário de login for detectado, podes introduzir as credenciais no modal local ou digitá-las manualmente no Chromium.
+
+As credenciais do modal não são guardadas no runtime, relatório, ficheiros ou GitHub.
+
+Se os campos forem preenchidos mas o controlo de login não for accionado pelo detector normal, o agente visual inicia uma recuperação: observa a screenshot, procura o próximo passo lógico e propõe o clique correcto em vez de ficar parado.
+
+### Aprovação por acção
+
+Antes de qualquer clique, escrita ou selecção:
+
+```text
+Agente observa
+      ↓
+decide a próxima acção
+      ↓
+cursor vai até ao alvo
+      ↓
+alvo recebe borda/halo
+      ↓
+AGUARDAR APROVAÇÃO NO DASHBOARD
+      ↓
+Rejeitar | Aprovar e executar
+```
+
+Passwords nunca aparecem no painel de aprovação; apenas o comprimento do valor secreto.
+
+### Trace operacional e correcções em tempo real
+
+Durante a execução, o dashboard mostra **O que o agente está a fazer**:
+
+- fase actual: observar, analisar, decidir, executar, verificar ou recuperar;
+- passo actual;
+- tempo decorrido na fase;
+- modelo/provider em uso;
+- observação curta;
+- próxima acção proposta;
+- justificação curta;
+- confiança indicada pelo modelo.
+
+Isto é um resumo operacional observável, não o raciocínio interno oculto do modelo.
+
+Enquanto o agente está em execução, podes usar **Corrigir agente agora**. A mensagem entra no próximo ciclo de decisão e tem prioridade sobre o plano inicial. Por defeito, se existir uma acção pendente à espera de aprovação, essa acção é rejeitada automaticamente para forçar uma nova observação.
+
+Exemplo:
+
+```text
+Não cliques nesse botão.
+Abre primeiro Feiras e Eventos e procura o processo actual.
+```
+
+O botão **Parar agente** impede novas acções. Se já existir uma chamada ao modelo em curso, essa chamada pode precisar de terminar antes de a paragem/correcção ser aplicada, mas nenhuma proposta antiga é executada depois de uma correcção recebida durante essa análise.
+
+### Aprovar sempre por tipo
+
+No pedido de aprovação existem três opções:
+
+- **Rejeitar**;
+- **Aprovar uma vez**;
+- **Sempre aprovar este tipo**.
+
+As regras suportadas são:
+
+- `CLICAR`;
+- `ESCREVER`;
+- `SELECCIONAR`.
+
+Quando uma regra é activada, o dashboard mostra-a em **Regras de aprovação activas**, com botão **Desactivar**. As regras valem apenas durante a sessão Chromium actual e são limpas quando a sessão é fechada.
+
+As protecções de segurança continuam acima destas regras: acções bloqueadas pela policy não passam a ser permitidas, e `ESCREVER` nunca auto-aprova passwords ou outros valores marcados como secretos.
+
+## Primeiro login
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main login
+```
+
+O Chrome abre com um perfil próprio em `runtime/chrome-profile`. Faz login manualmente no MySANA.
+O projecto não precisa de guardar utilizador/password.
+
+## Inspeccionar um formulário
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main inspect
+```
+
+Navega até ao formulário pretendido e carrega Enter no terminal. O programa mostra os elementos
+interactivos e os respectivos selectores.
+
+## Executar um workflow conhecido
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main workflow workflows/example-smoke.json
+```
+
+É este o modo que devemos usar para testes repetitivos: é previsível, barato e não depende do LLM
+para decidir cada clique.
+
+## Executar modo agentic
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main agent "Testa os campos obrigatórios deste formulário sem aprovar nem apagar nada"
+```
+
+O agent só pode devolver uma acção de cada vez: `click`, `fill`, `select`, `wait`, `assert_text` ou `done`.
+Não pode executar JavaScript, shell ou Python no browser.
+
+## Evidências
+
+Cada execução cria uma pasta em:
+
+```text
+runtime/evidence/<run-id>/
+```
+
+com:
+
+- screenshots por passo;
+- `report.json`;
+- `report.md`.
+
+A pasta `runtime/` está no `.gitignore`.
+
+## Segurança
+
+Por defeito:
+
+```env
+QA_ALLOW_DANGEROUS_ACTIONS=false
+QA_ENABLE_PAID_FALLBACK=false
+```
+
+O browser só navega para hosts definidos em `QA_ALLOWED_HOSTS`.
+
+Se o login do MySANA redireccionar para um domínio SSO diferente, adiciona-o explicitamente:
+
+```env
+QA_ALLOWED_HOSTS=mysana.sanahotels.com,login.exemplo.pt
+```
+
+Não coloques cookies, passwords, screenshots de produção, API keys ou dados pessoais no GitHub.
+
+## Próximo passo
+
+A v0.2 deve gravar os workflows reais do MySANA, começando pelos ecrãs que mais repetes:
+
+1. Processo Informacional;
+2. Despesas (`dsform`);
+3. Feiras e Eventos;
+4. testes de persistência/reload;
+5. validações negativas e casos limite.
