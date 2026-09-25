@@ -14,16 +14,21 @@ from pydantic import BaseModel, Field
 from browser.session import BrowserSession
 from core.provider_router import ProviderRouter
 from core.settings import Settings
+from qa.agent_runner import AgentRunner
 from qa.reporter import RunReport, StepResult
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-DASHBOARD_VERSION = "0.5.0-computer-use"
+DASHBOARD_VERSION = "0.6.0-agent-chat"
 
 
 class LoginPayload(BaseModel):
     username: str = Field(default="", max_length=512)
     password: str = Field(min_length=1, max_length=2048)
+
+
+class AgentCommandPayload(BaseModel):
+    command: str = Field(min_length=3, max_length=4000)
 
 
 class DashboardRuntime:
@@ -42,6 +47,8 @@ class DashboardRuntime:
         self.activity: list[dict[str, Any]] = []
         self.test_running = False
         self.login_required = False
+        self.current_goal: str | None = None
+        self.current_plan: dict[str, Any] | None = None
 
     def _on_browser_event(self, event: dict[str, Any]) -> None:
         with self.lock:
@@ -129,6 +136,181 @@ class DashboardRuntime:
             self.approval_results[approval_id] = False
             self.pending_approval = None
             self.approval_condition.notify_all()
+
+    def _agent_runner(self) -> AgentRunner:
+        with self.lock:
+            browser = self.browser
+        if browser is None or browser.driver is None:
+            raise RuntimeError("Abre primeiro a sessão Chromium/MySANA.")
+
+        return AgentRunner(
+            browser=browser,
+            provider=self.provider,
+            settings=self.settings,
+            event_callback=self._add_activity,
+        )
+
+    def plan_agent_command(self, command: str) -> dict[str, Any]:
+        command = command.strip()
+        if not command:
+            raise RuntimeError("Escreve um comando para o agente.")
+
+        with self.lock:
+            if self.test_running:
+                raise RuntimeError("Já existe uma execução do agente em curso.")
+
+        self._add_activity("chat", f"Comando recebido: {command[:240]}")
+        runner = self._agent_runner()
+        plan = runner.plan(command)
+
+        with self.lock:
+            self.current_goal = command
+            self.current_plan = plan
+
+        self._add_activity("plan", plan["summary"])
+        for index, step in enumerate(plan["steps"], start=1):
+            self._add_activity("plan", f"{index}. {step}")
+
+        return {
+            "goal": command,
+            "plan": plan,
+            "message": "Plano gerado. Revê as acções e carrega Executar plano.",
+        }
+
+    def execute_agent_plan(self) -> dict[str, Any]:
+        with self.lock:
+            if self.test_running:
+                raise RuntimeError("Já existe uma execução do agente em curso.")
+            if not self.current_goal or not self.current_plan:
+                raise RuntimeError("Gera primeiro um plano através do chat.")
+            if self.browser is None or self.browser.driver is None:
+                raise RuntimeError("Abre primeiro a sessão Chromium/MySANA.")
+
+            goal = self.current_goal
+            self.test_running = True
+            self.last_test = {
+                "ok": None,
+                "status": "RUNNING",
+                "message": f"Agente a executar: {goal}",
+            }
+
+        thread = threading.Thread(
+            target=self._run_agent_worker,
+            args=(goal,),
+            daemon=True,
+        )
+        thread.start()
+        return {
+            "started": True,
+            "goal": goal,
+            "message": "Execução iniciada. O agente irá reavaliar o ecrã a cada passo.",
+        }
+
+    def _run_agent_worker(self, goal: str) -> None:
+        self._add_activity("agent", f"A iniciar execução autónoma: {goal[:240]}")
+        try:
+            runner = self._agent_runner()
+            report = runner.run(goal, report_name="dashboard-agent")
+            result = {
+                "ok": True,
+                "status": "PASS",
+                "title": self.browser.page_title() if self.browser else None,
+                "url": self.browser.current_url() if self.browser else None,
+                "interactive_elements": None,
+                "visually_inspected": None,
+                "report_dir": str(report.output_dir),
+                "message": "Execução do agente terminada. Consulta o feed e o relatório.",
+            }
+        except Exception as exc:
+            result = {
+                "ok": False,
+                "status": "FAIL",
+                "title": None,
+                "url": None,
+                "interactive_elements": None,
+                "visually_inspected": None,
+                "report_dir": None,
+                "message": f"{type(exc).__name__}: {exc}",
+            }
+            self._add_activity("agent", f"Execução falhou: {type(exc).__name__}: {exc}")
+        finally:
+            with self.lock:
+                self.last_test = result
+                self.test_running = False
+
+    def _start_login_recovery_agent(self) -> None:
+        with self.lock:
+            if self.test_running:
+                return
+            if self.browser is None or self.browser.driver is None:
+                return
+            self.test_running = True
+            self.last_test = {
+                "ok": None,
+                "status": "RUNNING",
+                "message": "Agente visual a concluir o login.",
+            }
+
+        goal = (
+            "Complete the current MySANA login using the credentials that are already filled in. "
+            "Observe the screenshot and current DOM, click the correct login/entrar/sign-in control, "
+            "and stop as soon as the login form disappears or the authenticated MySANA page is visible. "
+            "Do not change any business data."
+        )
+        self._add_activity("recover", "A analisar visualmente o ecrã para concluir o login")
+        thread = threading.Thread(
+            target=self._run_login_recovery_worker,
+            args=(goal,),
+            daemon=True,
+        )
+        thread.start()
+
+    def _run_login_recovery_worker(self, goal: str) -> None:
+        try:
+            runner = self._agent_runner()
+            report = runner.run(goal, report_name="login-recovery")
+            with self.lock:
+                browser = self.browser
+
+            login_required = True
+            if browser is not None:
+                try:
+                    login_required = bool(browser.detect_login_form().get("required"))
+                except Exception:
+                    pass
+
+            with self.lock:
+                self.login_required = login_required
+                self.last_test = {
+                    "ok": not login_required,
+                    "status": "PASS" if not login_required else "BLOCKED",
+                    "title": browser.page_title() if browser else None,
+                    "url": browser.current_url() if browser else None,
+                    "interactive_elements": None,
+                    "visually_inspected": None,
+                    "report_dir": str(report.output_dir),
+                    "message": (
+                        "Login concluído pelo agente visual."
+                        if not login_required
+                        else "O login continua pendente; revê as acções propostas."
+                    ),
+                }
+        except Exception as exc:
+            with self.lock:
+                self.last_test = {
+                    "ok": False,
+                    "status": "FAIL",
+                    "title": None,
+                    "url": None,
+                    "interactive_elements": None,
+                    "visually_inspected": None,
+                    "report_dir": None,
+                    "message": f"{type(exc).__name__}: {exc}",
+                }
+            self._add_activity("recover", f"Recuperação de login falhou: {type(exc).__name__}")
+        finally:
+            with self.lock:
+                self.test_running = False
 
     def provider_status(self) -> list[dict[str, Any]]:
         configured = self.provider.provider_status()
@@ -270,14 +452,21 @@ class DashboardRuntime:
         with self.lock:
             self.login_required = bool(result.get("login_required"))
 
-        if self.login_required:
+        if result.get("needs_agent_recovery"):
+            self._add_activity(
+                "login",
+                "Credenciais preenchidas; o agente visual vai decidir o próximo passo do login",
+            )
+            self._start_login_recovery_agent()
+        elif self.login_required:
             self._add_activity("login", "O formulário de login continua visível")
         else:
             self._add_activity("login", "Login submetido e formulário de password deixou de estar visível")
 
         # username/password are intentionally not stored on runtime/state/reports.
         return {
-            "submitted": True,
+            "submitted": bool(result.get("submitted")),
+            "agent_recovery_started": bool(result.get("needs_agent_recovery")),
             "login_required": self.login_required,
             "url": result.get("url"),
             "title": result.get("title"),
@@ -424,6 +613,8 @@ class DashboardRuntime:
             "test_running": self.test_running,
             "activity": list(self.activity[-40:]),
             "pending_approval": dict(self.pending_approval) if self.pending_approval else None,
+            "current_goal": self.current_goal,
+            "current_plan": dict(self.current_plan) if self.current_plan else None,
             "paid_fallback_enabled": self.settings.enable_paid_fallback,
             "safe_mode": not self.settings.allow_dangerous_actions,
         }
@@ -492,6 +683,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return runtime.resolve_approval(approval_id, False)
         except Exception as exc:
             raise HTTPException(status_code=409, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.post("/api/agent/plan")
+    def api_agent_plan(payload: AgentCommandPayload) -> dict[str, Any]:
+        try:
+            return runtime.plan_agent_command(payload.command)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.post("/api/agent/run")
+    def api_agent_run() -> dict[str, Any]:
+        try:
+            return runtime.execute_agent_plan()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
 
     @app.post("/api/session/close")
     def api_close_session() -> dict[str, Any]:
