@@ -279,11 +279,115 @@ class DashboardRuntimeTests(unittest.TestCase):
         )
         self.assertTrue(write_rule["secret_exception"])
 
+    def test_live_steering_queues_correction_and_rejects_pending_action(self):
+        runtime = DashboardRuntime(Settings(approval_timeout_seconds=2))
+        runtime.test_running = True
+        approval_results = []
+
+        thread = threading.Thread(
+            target=lambda: approval_results.append(
+                runtime.request_approval(
+                    {
+                        "action": "click",
+                        "label": "Clicar no alvo errado",
+                        "target": "#wrong-target",
+                        "secret": False,
+                        "value_preview": None,
+                        "url": "https://mysana.sanahotels.com/test",
+                        "title": "Teste",
+                    }
+                )
+            )
+        )
+        thread.start()
+
+        for _ in range(50):
+            if runtime.pending_approval:
+                break
+            time.sleep(0.01)
+
+        result = runtime.steer_agent(
+            "Não cliques aí; abre primeiro Feiras e Eventos.",
+            reject_pending=True,
+        )
+        thread.join(timeout=1)
+
+        self.assertTrue(result["queued"])
+        self.assertTrue(result["pending_action_rejected"])
+        self.assertEqual(approval_results, [False])
+
+        control = runtime._consume_agent_control()
+        self.assertEqual(
+            control["steering"],
+            ["Não cliques aí; abre primeiro Feiras e Eventos."],
+        )
+        self.assertFalse(control["stop_requested"])
+
+    def test_stop_agent_sets_stop_flag_and_rejects_pending_action(self):
+        runtime = DashboardRuntime(Settings(approval_timeout_seconds=2))
+        runtime.test_running = True
+        approval_results = []
+
+        thread = threading.Thread(
+            target=lambda: approval_results.append(
+                runtime.request_approval(
+                    {
+                        "action": "select",
+                        "label": "Seleccionar opção",
+                        "target": "#processo",
+                        "secret": False,
+                        "value_preview": "Teste",
+                        "url": "https://mysana.sanahotels.com/test",
+                        "title": "Teste",
+                    }
+                )
+            )
+        )
+        thread.start()
+
+        for _ in range(50):
+            if runtime.pending_approval:
+                break
+            time.sleep(0.01)
+
+        result = runtime.stop_agent()
+        thread.join(timeout=1)
+
+        self.assertTrue(result["stop_requested"])
+        self.assertEqual(approval_results, [False])
+        control = runtime._consume_agent_control()
+        self.assertTrue(control["stop_requested"])
+
+    def test_agent_state_exposes_operational_trace(self):
+        runtime = DashboardRuntime(Settings())
+        runtime._update_agent_state(
+            {
+                "phase": "thinking",
+                "step": 3,
+                "detail": "A escolher a próxima acção.",
+                "provider": "nvidia_nim/z-ai/glm-5.3-flash",
+                "last_decision": {
+                    "observation": "Formulário de login visível.",
+                    "decision": "CLICK: Entrar",
+                    "reason": "Credenciais já estão preenchidas.",
+                    "confidence": "high",
+                },
+            }
+        )
+
+        payload = runtime.status_payload()
+        state = payload["agent_state"]
+
+        self.assertEqual(state["phase"], "thinking")
+        self.assertEqual(state["step"], 3)
+        self.assertEqual(state["last_decision"]["decision"], "CLICK: Entrar")
+        self.assertIn("phase_started_at", state)
+
     def test_status_payload_includes_build_version(self):
         runtime = DashboardRuntime(Settings())
         payload = runtime.status_payload()
         self.assertEqual(payload["version"], DASHBOARD_VERSION)
-        self.assertIn("approval-rules", payload["version"])
+        self.assertIn("live-steering", payload["version"])
 
     def test_agent_plan_requires_open_browser(self):
         runtime = DashboardRuntime(Settings())
@@ -310,6 +414,8 @@ class DashboardRuntimeTests(unittest.TestCase):
         self.assertIn("/api/approvals/{approval_id}/reject", paths)
         self.assertIn("/api/agent/plan", paths)
         self.assertIn("/api/agent/run", paths)
+        self.assertIn("/api/agent/steer", paths)
+        self.assertIn("/api/agent/stop", paths)
         self.assertIn("/api/session/close", paths)
         self.assertIn("/api/tests/start", paths)
 
