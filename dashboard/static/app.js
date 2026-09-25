@@ -200,6 +200,7 @@ function renderLastTest(test) {
 async function refresh() {
   try {
     const status = await request("/api/status");
+    $("buildBadge").textContent = status.version ? `build ${status.version}` : "build desconhecida";
     renderProviders(status.providers);
     renderSession(status.session, status.test_running);
     renderApproval(status.pending_approval);
