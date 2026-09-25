@@ -51,6 +51,7 @@ class Settings:
     visual_action_delay_ms: int = 500
     visual_typing_delay_ms: int = 55
     approval_timeout_seconds: int = 600
+    vision_model: str = "nvidia_nim/z-ai/glm-5.3-flash"
     llm_models: tuple[str, ...] = (
         "groq/openai/gpt-oss-120b",
         "nvidia_nim/z-ai/glm-5.3",
@@ -84,6 +85,10 @@ class Settings:
             visual_action_delay_ms=_env_int("QA_VISUAL_ACTION_DELAY_MS", 500),
             visual_typing_delay_ms=_env_int("QA_VISUAL_TYPING_DELAY_MS", 55),
             approval_timeout_seconds=_env_int("QA_APPROVAL_TIMEOUT_SECONDS", 600),
+            vision_model=os.getenv(
+                "QA_VISION_MODEL",
+                "nvidia_nim/z-ai/glm-5.3-flash",
+            ).strip() or "nvidia_nim/z-ai/glm-5.3-flash",
             llm_models=_env_list(
                 "QA_LLM_MODELS",
                 "groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3,openai/gpt-5.6-luna",
