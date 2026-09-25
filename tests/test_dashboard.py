@@ -57,12 +57,23 @@ class DashboardRuntimeTests(unittest.TestCase):
         self.assertEqual(openai["role"], "primary")
         self.assertTrue(openai["vision"])
 
-    def test_openai_is_disabled_when_paid_fallback_is_off(self):
+    def test_openai_fallback_is_disabled_when_paid_fallback_is_off(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-openai-secret"}, clear=True):
-            runtime = DashboardRuntime(Settings(enable_paid_fallback=False))
+            runtime = DashboardRuntime(
+                Settings(
+                    llm_models=(
+                        "groq/openai/gpt-oss-120b",
+                        "openai/gpt-5.6-luna",
+                    ),
+                    vision_model="nvidia_nim/z-ai/glm-5.3-flash",
+                    enable_paid_fallback=False,
+                )
+            )
             openai = next(item for item in runtime.provider_status() if item["name"] == "OpenAI")
+
         self.assertTrue(openai["configured"])
         self.assertFalse(openai["enabled"])
+        self.assertEqual(openai["role"], "fallback")
 
     def test_status_payload_does_not_contain_credentials(self):
         with patch.dict(
