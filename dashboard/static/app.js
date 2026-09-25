@@ -246,6 +246,67 @@ function renderApprovalRules(rules) {
   `).join("");
 }
 
+function renderAgentMonitor(agentState, testRunning, steeringQueueSize) {
+  const agent = agentState || {};
+  const phaseNames = {
+    idle: "EM ESPERA",
+    planning: "A PLANEAR",
+    "plan-ready": "PLANO PRONTO",
+    observing: "A OBSERVAR",
+    thinking: "A ANALISAR",
+    decision: "DECISÃO PRONTA",
+    acting: "A EXECUTAR",
+    verifying: "A VERIFICAR",
+    recovering: "A RECUPERAR",
+    done: "CONCLUÍDO",
+    stopped: "PARADO",
+    blocked: "BLOQUEADO",
+  };
+
+  const phase = agent.phase || "idle";
+  const phaseBadge = $("agentPhaseBadge");
+  phaseBadge.textContent = phaseNames[phase] || String(phase).toUpperCase();
+  phaseBadge.className = `badge ${
+    ["done", "plan-ready"].includes(phase)
+      ? "badge-pass"
+      : ["blocked", "stopped"].includes(phase)
+        ? "badge-fail"
+        : ["thinking", "planning", "recovering", "decision"].includes(phase)
+          ? "badge-warn"
+          : "badge-neutral"
+  }`;
+
+  $("agentStep").textContent = agent.step == null ? "—" : agent.step;
+  $("agentProvider").textContent = agent.provider || "—";
+  $("agentSteeringCount").textContent = steeringQueueSize || 0;
+  $("agentDetail").textContent = agent.detail || "Agente em espera.";
+
+  const startedAt = Number(agent.phase_started_at || 0);
+  const elapsed = startedAt > 0
+    ? Math.max(0, Math.floor(Date.now() / 1000 - startedAt))
+    : 0;
+  $("agentElapsed").textContent = `${elapsed}s`;
+
+  const trace = agent.last_decision;
+  const tracePanel = $("decisionTrace");
+  if (trace && (trace.observation || trace.decision || trace.reason)) {
+    tracePanel.classList.remove("hidden");
+    $("decisionObservation").textContent = trace.observation || "—";
+    $("decisionAction").textContent = trace.decision || "—";
+    $("decisionReason").textContent = trace.reason || "—";
+    $("decisionConfidence").textContent = trace.confidence
+      ? String(trace.confidence).toUpperCase()
+      : "—";
+  } else {
+    tracePanel.classList.add("hidden");
+  }
+
+  $("agentSteerMessage").disabled = !testRunning;
+  $("steerAgentButton").disabled = !testRunning;
+  $("stopAgentButton").disabled = !testRunning;
+  $("rejectPendingOnSteer").disabled = !testRunning;
+}
+
 function renderActivity(activity, testRunning) {
   const badge = $("activityBadge");
   badge.textContent = testRunning ? "A executar" : "Em espera";
@@ -311,6 +372,11 @@ async function refresh() {
     renderPlan(status.current_plan, status.current_goal, status.test_running);
     renderApproval(status.pending_approval);
     renderApprovalRules(status.auto_approve_rules || []);
+    renderAgentMonitor(
+      status.agent_state,
+      status.test_running,
+      status.steering_queue_size
+    );
     renderActivity(status.activity, status.test_running);
     renderLastTest(status.last_test);
 
@@ -382,6 +448,54 @@ $("executePlanButton").addEventListener("click", () => withBusy($("executePlanBu
   const result = await request("/api/agent/run", { method: "POST" });
   toast(result.message);
 }));
+
+$("agentSteerForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const message = $("agentSteerMessage").value.trim();
+  if (!message) {
+    toast("Escreve a correcção que queres dar ao agente.");
+    return;
+  }
+
+  const button = $("steerAgentButton");
+  button.disabled = true;
+
+  try {
+    const result = await request("/api/agent/steer", {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        reject_pending: $("rejectPendingOnSteer").checked,
+      }),
+    });
+
+    $("agentSteerMessage").value = "";
+    toast(
+      result.pending_action_rejected
+        ? "Correcção enviada e acção pendente rejeitada. O agente vai reavaliar."
+        : "Correcção enviada. Será aplicada no próximo ciclo."
+    );
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    await refresh();
+  }
+});
+
+$("stopAgentButton").addEventListener("click", async () => {
+  const button = $("stopAgentButton");
+  button.disabled = true;
+
+  try {
+    const result = await request("/api/agent/stop", { method: "POST" });
+    toast(result.message);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    await refresh();
+  }
+});
 
 $("loginForm").addEventListener("submit", async (event) => {
   event.preventDefault();
