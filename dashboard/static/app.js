@@ -2,6 +2,7 @@ const state = {
   busy: false,
   lastActivityId: null,
   loginModalSuppressed: false,
+  approvalBusy: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -103,6 +104,49 @@ function renderSession(session, testRunning) {
   }
 }
 
+function renderApproval(approval) {
+  const panel = $("approvalPanel");
+  if (!approval) {
+    panel.classList.add("hidden");
+    state.approvalBusy = false;
+    return;
+  }
+
+  panel.classList.remove("hidden");
+
+  const actionNames = {
+    click: "CLICAR",
+    write: "ESCREVER",
+    select: "SELECCIONAR",
+    keypress: "TECLA",
+  };
+
+  $("approvalActionBadge").textContent = actionNames[approval.action] || String(approval.action || "ACÇÃO").toUpperCase();
+  $("approvalLabel").textContent = approval.label || "Acção pendente";
+  $("approvalTarget").textContent = approval.target || "—";
+
+  if (approval.secret) {
+    const length = approval.value_length == null ? "" : ` — ${approval.value_length} caracteres`;
+    $("approvalValue").textContent = `Oculto${length}`;
+  } else if (approval.value_preview != null && String(approval.value_preview).length) {
+    $("approvalValue").textContent = approval.value_preview;
+  } else {
+    $("approvalValue").textContent = "Sem valor a mostrar";
+  }
+
+  $("approvalPage").textContent = approval.title
+    ? `${approval.title} — ${approval.url || ""}`
+    : (approval.url || "—");
+
+  $("approvalDescription").textContent =
+    "O cursor já está no alvo no Chromium. Confirma se queres executar esta acção.";
+
+  $("approveApprovalButton").dataset.approvalId = approval.id;
+  $("rejectApprovalButton").dataset.approvalId = approval.id;
+  $("approveApprovalButton").disabled = state.approvalBusy;
+  $("rejectApprovalButton").disabled = state.approvalBusy;
+}
+
 function renderActivity(activity, testRunning) {
   const badge = $("activityBadge");
   badge.textContent = testRunning ? "A executar" : "Em espera";
@@ -158,12 +202,17 @@ async function refresh() {
     const status = await request("/api/status");
     renderProviders(status.providers);
     renderSession(status.session, status.test_running);
+    renderApproval(status.pending_approval);
     renderActivity(status.activity, status.test_running);
     renderLastTest(status.last_test);
 
     $("safetyBadge").textContent = status.safe_mode ? "Modo seguro" : "Acções perigosas permitidas";
     $("safetyBadge").className = `badge ${status.safe_mode ? "badge-safe" : "badge-fail"}`;
-    $("refreshState").textContent = status.test_running ? "Agente em execução" : "Actualizado agora";
+    $("refreshState").textContent = status.pending_approval
+      ? "A aguardar a tua aprovação"
+      : status.test_running
+        ? "Agente em execução"
+        : "Actualizado agora";
   } catch (error) {
     $("refreshState").textContent = "Backend indisponível";
   }
@@ -209,28 +258,72 @@ $("startTestButton").addEventListener("click", () => withBusy($("startTestButton
   toast(result.message);
 }));
 
-$("loginForm").addEventListener("submit", (event) => {
+$("loginForm").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.busy) return;
+
   const button = $("loginSubmitButton");
+  const username = $("loginUsername").value;
+  const password = $("loginPassword").value;
 
-  withBusy(button, async () => {
-    const username = $("loginUsername").value;
-    const password = $("loginPassword").value;
+  if (!password) {
+    toast("Introduz a password.");
+    return;
+  }
 
-    if (!password) {
-      throw new Error("Introduz a password.");
-    }
+  state.busy = true;
+  const previous = button.textContent;
+  button.disabled = true;
+  button.textContent = "A aguardar aprovações…";
 
+  // Remove the credential values from the DOM immediately. The request body
+  // keeps them only long enough to execute the local assisted login.
+  $("loginPassword").value = "";
+  setLoginModal(false);
+
+  try {
     await request("/api/session/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
-
-    $("loginPassword").value = "";
-    setLoginModal(false);
-    toast("Credenciais entregues localmente. Observa o Chromium a escrever e entrar.");
-  });
+    toast("Login assistido concluído.");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    state.busy = false;
+    button.disabled = false;
+    button.textContent = previous;
+    await refresh();
+  }
 });
+
+async function resolveApproval(approved) {
+  if (state.approvalBusy) return;
+
+  const button = approved ? $("approveApprovalButton") : $("rejectApprovalButton");
+  const approvalId = button.dataset.approvalId;
+  if (!approvalId) return;
+
+  state.approvalBusy = true;
+  $("approveApprovalButton").disabled = true;
+  $("rejectApprovalButton").disabled = true;
+
+  try {
+    await request(
+      `/api/approvals/${encodeURIComponent(approvalId)}/${approved ? "approve" : "reject"}`,
+      { method: "POST" }
+    );
+    toast(approved ? "Acção aprovada." : "Acção rejeitada.");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    state.approvalBusy = false;
+    await refresh();
+  }
+}
+
+$("approveApprovalButton").addEventListener("click", () => resolveApproval(true));
+$("rejectApprovalButton").addEventListener("click", () => resolveApproval(false));
 
 $("loginCancelButton").addEventListener("click", () => {
   state.loginModalSuppressed = true;
