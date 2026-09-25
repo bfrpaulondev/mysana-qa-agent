@@ -1,5 +1,6 @@
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from core.settings import Settings
@@ -26,6 +27,24 @@ class SettingsTests(unittest.TestCase):
         with patch.dict(os.environ, {"QA_LLM_MODELS": "groq/a,nvidia_nim/b"}, clear=True):
             settings = Settings.from_env()
             self.assertEqual(settings.llm_models, ("groq/a", "nvidia_nim/b"))
+
+    def test_blank_profile_env_does_not_resolve_to_project_directory(self):
+        fake_local = str(Path.cwd() / "fake-local-app-data")
+        with patch.dict(
+            os.environ,
+            {
+                "LOCALAPPDATA": fake_local,
+                "QA_CHROME_PROFILE_DIR": "",
+            },
+            clear=True,
+        ):
+            settings = Settings.from_env()
+
+        self.assertEqual(
+            settings.chrome_profile_dir,
+            (Path(fake_local) / "MySANA-QA-Agent" / "browser-profile").resolve(),
+        )
+        self.assertNotEqual(settings.chrome_profile_dir, Path.cwd().resolve())
 
 
 if __name__ == "__main__":
