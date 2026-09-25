@@ -11,8 +11,8 @@ pensada especificamente para correr num PC normal sem LLM local pesado.
 - Browser Chrome visível e perfil persistente para login manual.
 - `workflow`: testes determinísticos e baratos, sem IA em cada clique.
 - `agent`: exploração limitada com IA quando ainda não existe workflow.
-- Router de modelos: **Groq → NVIDIA NIM → OpenAI**.
-- OpenAI desactivado por defeito para evitar gasto acidental.
+- Router de modelos: **OpenAI → Groq → NVIDIA NIM**.
+- OpenAI GPT-5.6 Luna é o provider primário para testar menor latência; Groq/NVIDIA ficam como fallback.
 - Whitelist de domínios.
 - Bloqueio por defeito de apagar, aprovar, pagar, transferir e rejeitar.
 - Screenshot e relatório Markdown/JSON por execução.
@@ -21,12 +21,14 @@ pensada especificamente para correr num PC normal sem LLM local pesado.
 
 Por defeito:
 
-1. `groq/openai/gpt-oss-120b`
-2. `nvidia_nim/z-ai/glm-5.3`
-3. `openai/gpt-5.6-luna` — apenas se `QA_ENABLE_PAID_FALLBACK=true`
+1. `openai/gpt-5.6-luna` — primário
+2. `groq/openai/gpt-oss-120b` — fallback
+3. `nvidia_nim/z-ai/glm-5.3` — fallback
 
-Se Groq falhar ou atingir quota, o router tenta NVIDIA GLM-5.3. A OpenAI nunca é usada automaticamente
-enquanto o fallback pago estiver desactivado.
+Para screenshots/visão, o primário também é `openai/gpt-5.6-luna`.
+
+`QA_PREFER_OPENAI=true` força esta ordem mesmo se um `.env` antigo ainda tiver Groq/NVIDIA primeiro.
+Se OpenAI não estiver configurada ou falhar no fluxo textual, o router continua para Groq e NVIDIA.
 
 ## Configurar Groq + NVIDIA NIM sem expor chaves
 
@@ -67,7 +69,7 @@ Resultado esperado:
 ```text
 Groq: configured
 NVIDIA NIM: configured
-OpenAI: missing
+OpenAI: configured
 Secrets: hidden (doctor never prints API keys)
 ```
 
@@ -81,7 +83,7 @@ Exemplo:
 
 ```text
 Provider connectivity test
-One minimal request is sent to each configured free provider.
+One minimal request is sent to each configured provider in routing order.
 PASS | groq/openai/gpt-oss-120b | 420 ms | response='OK'
 PASS | nvidia_nim/z-ai/glm-5.3 | 1250 ms | response='OK'
 Secrets: hidden
@@ -89,13 +91,8 @@ Secrets: hidden
 
 O comando nunca imprime as API keys. Os tempos acima são apenas ilustrativos.
 
-Enquanto:
-
-```env
-QA_ENABLE_PAID_FALLBACK=false
-```
-
-estiver definido, a OpenAI é ignorada mesmo que exista uma chave local.
+`QA_ENABLE_PAID_FALLBACK=false` só bloqueia OpenAI quando ela estiver configurada como fallback.
+Com `QA_PREFER_OPENAI=true`, OpenAI é primária e por isso continua activa.
 
 ## Instalação no Windows
 
@@ -154,12 +151,14 @@ O plano inicial é apenas uma previsão. O agente não fica preso a uma sequênc
 O planner visual usa por defeito:
 
 ```env
-QA_VISION_MODEL=nvidia_nim/z-ai/glm-5.3-flash
+QA_PREFER_OPENAI=true
+QA_VISION_MODEL=openai/gpt-5.6-luna
+QA_LLM_MODELS=openai/gpt-5.6-luna,groq/openai/gpt-oss-120b,nvidia_nim/z-ai/glm-5.3
 ```
 
-com a mesma `NVIDIA_NIM_API_KEY` usada pelo provider NVIDIA.
+A preferência OpenAI é aplicada mesmo sobre um `.env` antigo. Para voltar a respeitar manualmente a ordem do `.env`, usa `QA_PREFER_OPENAI=false`.
 
-Se o modelo visual não estiver disponível, o agente pode cair para o planeamento baseado no DOM/texto.
+Se a visão OpenAI não estiver disponível, o agente cai para o planeamento DOM/texto usando a cadeia de providers configurada.
 
 ### Login
 
