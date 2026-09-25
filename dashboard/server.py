@@ -348,6 +348,7 @@ class DashboardRuntime:
         with self.lock:
             self.current_goal = command
             self.current_plan = plan
+            self.agent_state["last_decision"] = None
 
         self._add_activity("plan", plan["summary"])
         for index, step in enumerate(plan["steps"], start=1):
@@ -395,15 +396,20 @@ class DashboardRuntime:
         try:
             runner = self._agent_runner()
             report = runner.run(goal, report_name="dashboard-agent")
+            final_status = report.steps[-1].status if report.steps else "PASS"
             result = {
-                "ok": True,
-                "status": "PASS",
+                "ok": final_status == "PASS",
+                "status": final_status,
                 "title": self.browser.page_title() if self.browser else None,
                 "url": self.browser.current_url() if self.browser else None,
                 "interactive_elements": None,
                 "visually_inspected": None,
                 "report_dir": str(report.output_dir),
-                "message": "Execução do agente terminada. Consulta o feed e o relatório.",
+                "message": (
+                    "Execução do agente terminada. Consulta o feed e o relatório."
+                    if final_status == "PASS"
+                    else "Execução interrompida/bloqueada. Consulta o trace e o relatório."
+                ),
             }
         except Exception as exc:
             result = {
@@ -605,6 +611,16 @@ class DashboardRuntime:
             self.activity = []
             self.login_required = False
             self.auto_approve_rules.clear()
+            self.steering_messages.clear()
+            self.stop_requested = False
+            self.agent_state = {
+                "phase": "idle",
+                "step": None,
+                "detail": "Agente em espera.",
+                "provider": None,
+                "phase_started_at": time.time(),
+                "last_decision": None,
+            }
             self.browser = BrowserSession(
                 self.settings,
                 event_callback=self._on_browser_event,
@@ -666,6 +682,16 @@ class DashboardRuntime:
             self.browser = None
             self.login_required = False
             self.auto_approve_rules.clear()
+            self.steering_messages.clear()
+            self.stop_requested = False
+            self.agent_state = {
+                "phase": "idle",
+                "step": None,
+                "detail": "Agente em espera.",
+                "provider": None,
+                "phase_started_at": time.time(),
+                "last_decision": None,
+            }
 
         if browser is not None:
             browser.close()
