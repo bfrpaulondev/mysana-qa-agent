@@ -891,3 +891,122 @@ h2 {
     width: 100%;
   }
 }
+
+
+.agent-monitor-panel {
+  margin-bottom: 20px;
+  border-color: rgba(139, 245, 191, .22);
+}
+
+.agent-monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.agent-monitor-metric {
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.agent-current-detail {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(139, 245, 191, .035);
+}
+
+.decision-trace {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.decision-trace > div {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(141, 184, 255, .2);
+  border-radius: 14px;
+  background: rgba(141, 184, 255, .045);
+}
+
+.decision-trace p {
+  margin: 7px 0 0;
+  color: #dce2ec;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.agent-steer-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.agent-steer-form textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  outline: none;
+  background: #0b0f16;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.agent-steer-form textarea:focus {
+  border-color: rgba(141, 184, 255, .65);
+  box-shadow: 0 0 0 4px rgba(141, 184, 255, .08);
+}
+
+.steer-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--muted);
+  font-size: .8rem;
+  line-height: 1.4;
+}
+
+.steer-option input {
+  margin-top: 2px;
+}
+
+.steer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 820px) {
+  .agent-monitor-grid,
+  .decision-trace {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .agent-monitor-grid,
+  .decision-trace {
+    grid-template-columns: 1fr;
+  }
+
+  .steer-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
