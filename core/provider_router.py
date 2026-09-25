@@ -9,6 +9,8 @@ from core.settings import Settings
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_NVIDIA_NIM_API_BASE = "https://integrate.api.nvidia.com/v1"
+
 
 class LlmBudgetExceeded(RuntimeError):
     pass
@@ -39,14 +41,52 @@ class ProviderRouter:
     def reset_budget(self) -> None:
         self.calls_used = 0
 
+    @staticmethod
+    def _env_secret(name: str) -> str | None:
+        value = os.getenv(name, "").strip()
+        if not value:
+            return None
+
+        # .env.example uses explicit placeholders. They must never be treated as
+        # configured credentials if the user copied the template unchanged.
+        upper = value.upper()
+        if upper.startswith("YOUR_") or upper in {"CHANGE_ME", "REPLACE_ME"}:
+            return None
+        if value.startswith("<") and value.endswith(">"):
+            return None
+        return value
+
+    def provider_status(self) -> dict[str, bool]:
+        return {
+            "Groq": self._env_secret("GROQ_API_KEY") is not None,
+            "NVIDIA NIM": self._env_secret("NVIDIA_NIM_API_KEY") is not None,
+            "OpenAI": self._env_secret("OPENAI_API_KEY") is not None,
+        }
+
     def _has_credentials(self, model: str) -> bool:
         if model.startswith("groq/"):
-            return bool(os.getenv("GROQ_API_KEY"))
+            return self._env_secret("GROQ_API_KEY") is not None
         if model.startswith("nvidia_nim/"):
-            return bool(os.getenv("NVIDIA_NIM_API_KEY"))
+            return self._env_secret("NVIDIA_NIM_API_KEY") is not None
         if model.startswith("openai/"):
-            return bool(os.getenv("OPENAI_API_KEY"))
+            return self._env_secret("OPENAI_API_KEY") is not None
         return True
+
+    def _provider_kwargs(self, model: str) -> dict[str, Any]:
+        if model.startswith("groq/"):
+            return {"api_key": self._env_secret("GROQ_API_KEY")}
+
+        if model.startswith("nvidia_nim/"):
+            api_base = os.getenv("NVIDIA_NIM_API_BASE", _DEFAULT_NVIDIA_NIM_API_BASE).strip()
+            return {
+                "api_key": self._env_secret("NVIDIA_NIM_API_KEY"),
+                "api_base": api_base or _DEFAULT_NVIDIA_NIM_API_BASE,
+            }
+
+        if model.startswith("openai/"):
+            return {"api_key": self._env_secret("OPENAI_API_KEY")}
+
+        return {}
 
     def _is_paid_fallback(self, model: str) -> bool:
         return model.startswith("openai/")
@@ -84,6 +124,8 @@ class ProviderRouter:
                     "timeout": self.settings.llm_timeout_seconds,
                     "max_tokens": self.settings.llm_max_output_tokens,
                 }
+                kwargs.update(self._provider_kwargs(model))
+
                 response = litellm.completion(**kwargs)
                 content = response.choices[0].message.content
                 if not content:
