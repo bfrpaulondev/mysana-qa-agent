@@ -172,7 +172,18 @@ class DashboardRuntimeTests(unittest.TestCase):
         runtime = DashboardRuntime(Settings())
         payload = runtime.status_payload()
         self.assertEqual(payload["version"], DASHBOARD_VERSION)
-        self.assertIn("computer-use", payload["version"])
+        self.assertIn("agent-chat", payload["version"])
+
+    def test_agent_plan_requires_open_browser(self):
+        runtime = DashboardRuntime(Settings())
+        with self.assertRaises(RuntimeError):
+            runtime.plan_agent_command("Testa o formulário sem gravar")
+
+    def test_status_starts_without_agent_plan(self):
+        runtime = DashboardRuntime(Settings())
+        payload = runtime.status_payload()
+        self.assertIsNone(payload["current_goal"])
+        self.assertIsNone(payload["current_plan"])
 
     def test_dashboard_routes_exist(self):
         app = create_app(Settings())
@@ -184,6 +195,8 @@ class DashboardRuntimeTests(unittest.TestCase):
         self.assertIn("/api/session/login", paths)
         self.assertIn("/api/approvals/{approval_id}/approve", paths)
         self.assertIn("/api/approvals/{approval_id}/reject", paths)
+        self.assertIn("/api/agent/plan", paths)
+        self.assertIn("/api/agent/run", paths)
         self.assertIn("/api/session/close", paths)
         self.assertIn("/api/tests/start", paths)
 
