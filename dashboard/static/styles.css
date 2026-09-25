@@ -703,3 +703,133 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+
+.command-panel {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+.chat-messages {
+  display: grid;
+  gap: 10px;
+  min-height: 128px;
+  max-height: 230px;
+  margin: 20px 0 14px;
+  overflow-y: auto;
+}
+
+.chat-message {
+  width: fit-content;
+  max-width: 92%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.chat-message p {
+  margin: 5px 0 0;
+  line-height: 1.5;
+}
+
+.chat-agent {
+  justify-self: start;
+  background: var(--surface-2);
+}
+
+.chat-user {
+  justify-self: end;
+  border-color: rgba(141, 184, 255, .28);
+  background: rgba(141, 184, 255, .09);
+}
+
+.chat-role {
+  color: var(--muted);
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.chat-composer {
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.chat-composer textarea {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  outline: none;
+  background: #0b0f16;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.chat-composer textarea:focus {
+  border-color: rgba(124, 255, 178, .72);
+  box-shadow: 0 0 0 4px rgba(124, 255, 178, .08);
+}
+
+.plan-panel {
+  margin-bottom: 20px;
+  border-color: rgba(141, 184, 255, .32);
+}
+
+.plan-steps {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0;
+  padding-left: 28px;
+}
+
+.plan-steps li {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface-2);
+  color: #dce2ec;
+  line-height: 1.5;
+}
+
+.plan-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.plan-actions .hint {
+  margin: 0;
+}
+
+.plan-actions .button-run {
+  width: auto;
+  min-width: 180px;
+}
+
+.activity-item-reasoning {
+  border-color: rgba(141, 184, 255, .22);
+  background: rgba(141, 184, 255, .045);
+}
+
+.activity-item-reasoning .activity-type {
+  color: var(--blue);
+}
+
+@media (max-width: 720px) {
+  .plan-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .plan-actions .button-run {
+    width: 100%;
+  }
+}
