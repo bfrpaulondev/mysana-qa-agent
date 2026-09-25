@@ -189,6 +189,24 @@ Rejeitar | Aprovar e executar
 
 Passwords nunca aparecem no painel de aprovação; apenas o comprimento do valor secreto.
 
+### Aprovar sempre por tipo
+
+No pedido de aprovação existem três opções:
+
+- **Rejeitar**;
+- **Aprovar uma vez**;
+- **Sempre aprovar este tipo**.
+
+As regras suportadas são:
+
+- `CLICAR`;
+- `ESCREVER`;
+- `SELECCIONAR`.
+
+Quando uma regra é activada, o dashboard mostra-a em **Regras de aprovação activas**, com botão **Desactivar**. As regras valem apenas durante a sessão Chromium actual e são limpas quando a sessão é fechada.
+
+As protecções de segurança continuam acima destas regras: acções bloqueadas pela policy não passam a ser permitidas, e `ESCREVER` nunca auto-aprova passwords ou outros valores marcados como secretos.
+
 ## Primeiro login
 
 ```powershell
